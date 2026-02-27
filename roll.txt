@@ -1,0 +1,36 @@
+해당 종목의 최신 상황을 오늘 날짜로 웹 검색하여 상태 분석 결과를 포함하세요
+아래의 형식 규칙에 따라서 결과를 "result.txt"파일에 저장하세요
+
+{
+  "timestamp": "2026-02-26T14:35:20",
+  "actions": [
+    {
+      "action": "BUY",
+      "stock_code": "005930",
+      "stock_name": "삼성전자",
+      "reason": "판단 근거 상세 설명",
+      "confidence": 85
+    }
+  ],
+  "summary": "전체 시장 판단 요약"
+}
+
+📊 필드 상세 설명
+1️⃣ 최상위 필드
+필드	타입	필수	설명
+timestamp	string	선택	ISO 8601 형식 날짜시간 (예: "2026-02-26T14:35:20")
+actions	array	필수	매매 판단 액션 배열 (최소 1개 이상)
+summary	string	선택	전체 시장 판단 요약 텍스트
+2️⃣ actions 배열 내 객체
+필드	타입	필수	설명
+action	string	필수	"BUY", "SELL", "HOLD" 중 하나
+stock_code	string	필수	종목 코드 (예: "005930")
+stock_name	string	필수	종목명 (예: "삼성전자")
+reason	string	필수	판단 근거 상세 설명
+confidence	number	선택	신뢰도 (0-100)
+🎯 action 값 규칙
+값	의미	GUI 표시
+"BUY"	매수 권장	🟢 매수 (초록색)
+"SELL"	매도 권장	🔴 매도 (빨간색)
+"HOLD"	보유 유지	⚪ 보유 (회색)
+⚠️ 대소문자 구분: 반드시 대문자로 작성
