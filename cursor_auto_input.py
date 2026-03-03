@@ -426,15 +426,26 @@ def send_text_to_cursor(text, cursor_window):
         
         # 전체 선택 + 붙여넣기 + Enter를 연속으로 실행
         print("  → 붙여넣기 실행...")
-        send_keys("^a")  # Ctrl+A (전체 선택)
-        time.sleep(0.05)
-        send_keys("^v")  # Ctrl+V (붙여넣기)
-        time.sleep(0.5)  # 붙여넣기 완료 대기
+        try:
+            send_keys("^a")  # Ctrl+A (전체 선택)
+            time.sleep(0.05)
+        except Exception as e:
+            print(f"  ⚠ 전체 선택 오류: {e}")
+        
+        try:
+            send_keys("^v")  # Ctrl+V (붙여넣기)
+            time.sleep(0.5)  # 붙여넣기 완료 대기
+        except Exception as e:
+            print(f"  ⚠ 붙여넣기 오류: {e}")
+            # 붙여넣기 실패해도 계속 진행
         
         # Enter 키 전송
         print("  → Enter 전송...")
-        send_keys("{ENTER}")
-        time.sleep(0.1)
+        try:
+            send_keys("{ENTER}")
+            time.sleep(0.1)
+        except Exception as e:
+            print(f"  ⚠ Enter 전송 오류: {e}")
         
         print("  → ✓ 완료!")
         return True
@@ -496,16 +507,25 @@ def monitor_files_and_send(status_file, roll_file, cursor_window, check_interval
                     print(f"파일 내용 읽기 완료 (총 {len(combined_content)} 자)")
                     
                     # Cursor에 내용 전송 (사용자 유휴 대기 포함)
-                    success = send_text_to_cursor(combined_content, cursor_window)
-                    
-                    if success:
+                    try:
+                        success = send_text_to_cursor(combined_content, cursor_window)
+                        
+                        if success:
+                            print(f"\n" + "="*80)
+                            print(f"✓ 작업 완료! 파일 내용이 Cursor에 전송되었습니다.")
+                            print(f"="*80 + "\n")
+                        else:
+                            print(f"\n" + "="*80)
+                            print(f"✗ 전송 실패 (함수 반환 False)")
+                            print(f"="*80 + "\n")
+                    except Exception as send_error:
                         print(f"\n" + "="*80)
-                        print(f"✓ 작업 완료! 파일 내용이 Cursor에 전송되었습니다.")
-                        print(f"="*80 + "\n")
-                    else:
-                        print(f"\n" + "="*80)
-                        print(f"✗ 전송 실패")
-                        print(f"="*80 + "\n")
+                        print(f"✗ 전송 중 예외 발생: {send_error}")
+                        print(f"="*80)
+                        import traceback
+                        traceback.print_exc()
+                        print("="*80)
+                        print("모니터링을 계속 진행합니다...\n")
                 else:
                     print(f"✗ 파일 내용을 읽을 수 없습니다.\n")
             
