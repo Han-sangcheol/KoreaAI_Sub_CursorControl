@@ -397,7 +397,7 @@ def send_text_to_cursor(text, cursor_window):
             for attempt in range(max_attempts):
                 print(f"  → Ctrl+Alt+B 시도 {attempt + 1}/{max_attempts}")
                 send_keys("^%b")  # Ctrl+Alt+B로 입력창 토글
-                time.sleep(0.6)  # 입력창 열리는 시간 충분히 대기
+                time.sleep(1.2)  # 입력창 열리는 시간 충분히 대기 (1초 이상 필요)
                 
                 # 입력창이 열렸는지 확인
                 try:
@@ -433,7 +433,6 @@ def send_text_to_cursor(text, cursor_window):
         time.sleep(0.1)
         
         print("  → ✓ 완료!")
-        return True
         return True
             
     except Exception as e:
