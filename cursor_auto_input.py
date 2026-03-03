@@ -86,7 +86,10 @@ def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
         
         # idle_seconds 이상 입력이 없으면 완료
         if time_since_last_input >= idle_seconds:
-            print(f"\n  ✓ 유휴 상태 {idle_seconds}초 확인 완료! (총 대기 시간: {elapsed_total:.1f}초)")
+            # ★ 100% 진행률 표시 먼저 출력
+            bar_full = '█' * 20
+            print(f"     [{bar_full}] 100.0% | 유휴: {idle_seconds:.1f}초 / {idle_seconds}초 (총 대기: {elapsed_total:.1f}초)    ")
+            print(f"  ✓ 유휴 상태 {idle_seconds}초 확인 완료! (총 대기 시간: {elapsed_total:.1f}초)")
             print(f"  → 이제 복사 및 붙여넣기를 진행합니다...")
             break
         
