@@ -345,8 +345,8 @@ def send_text_to_cursor(text, cursor_window):
     """
     텍스트를 지정된 Cursor 프롬프트 입력창에 입력하고 엔터
     Electron 앱 특성상 윈도우 활성화 후 키보드 시뮬레이션 사용
-    사용자가 키보드/마우스를 사용 중이면 3.5초간 유휴 상태가 될 때까지 대기
-    유휴 대기 중에 미리 클립보드에 복사하여 대기 완료 후 최대한 빠르게 붙여넣기 실행
+    사용자가 키보드/마우스를 사용 중이면 3.0초간 유휴 상태가 될 때까지 대기
+    유휴 대기 중에 미리 클립보드에 복사하여 대기 완료 후 초고속으로 붙여넣기 실행
     """
     try:
         if not text:
@@ -357,58 +357,32 @@ def send_text_to_cursor(text, cursor_window):
         
         # ★ 유휴 대기 전에 미리 클립보드에 복사 (대기 시간 단축)
         import pyperclip
-        print("  → 클립보드에 미리 복사 중...")
+        print("  → 클립보드에 미리 복사...")
         pyperclip.copy(text)
-        print("  → 클립보드 복사 완료 (유휴 대기 전 준비)")
+        print("  → 준비 완료!")
         
-        # 사용자 입력이 없는 상태가 3.5초 지속될 때까지 대기
-        wait_for_user_idle(idle_seconds=3.5, check_interval=0.5)
+        # 사용자 입력이 없는 상태가 3.0초 지속될 때까지 대기
+        wait_for_user_idle(idle_seconds=3.0, check_interval=0.5)
         
-        # ★ 유휴 상태 확인 즉시 빠르게 진행
-        print("  → 즉시 붙여넣기 시작!")
+        # ★ 유휴 상태 확인 즉시 초고속 붙여넣기 시작
+        print("  → ⚡ 초고속 붙여넣기 시작!")
         
         # Cursor 윈도우를 활성화
-        print("  → Cursor 윈도우 활성화 중...")
         cursor_window.set_focus()
-        time.sleep(0.5)  # 최소한의 활성화 대기
+        time.sleep(0.3)  # 최소한의 활성화 대기
         
-        # 채팅 입력창 찾기
-        chat_input = find_chat_input(cursor_window)
+        # Ctrl+L로 입력창 포커스 (가장 빠른 방법)
+        send_keys("^l")
+        time.sleep(0.15)
         
-        if chat_input:
-            try:
-                # 입력창 클릭하여 포커스
-                print("  → 입력창 포커스...")
-                chat_input.click_input()
-                time.sleep(0.2)
-            except Exception as e:
-                print(f"  → 입력창 클릭 실패, set_focus 시도... ({e})")
-                try:
-                    chat_input.set_focus()
-                    time.sleep(0.2)
-                except:
-                    print("  → set_focus도 실패, Ctrl+L 사용...")
-                    send_keys("^l")
-                    time.sleep(0.3)
-        else:
-            # 입력창을 찾지 못한 경우 Ctrl+L 사용
-            print("  → 입력창을 찾지 못함, Ctrl+L 사용...")
-            send_keys("^l")
-            time.sleep(0.3)
-        
-        # 기존 내용 전체 선택 후 붙여넣기 (최대한 빠르게)
-        print("  → 붙여넣기 실행...")
+        # 전체 선택 + 붙여넣기 + Enter를 연속으로 빠르게 실행
         send_keys("^a")  # Ctrl+A (전체 선택)
-        time.sleep(0.1)
+        time.sleep(0.05)
         send_keys("^v")  # Ctrl+V (붙여넣기)
-        time.sleep(0.5)  # 붙여넣기 완료 대기
+        time.sleep(0.3)  # 붙여넣기 완료 대기
+        send_keys("{ENTER}")  # Enter
         
-        # Enter 키 전송
-        print("  → Enter 키 전송...")
-        send_keys("{ENTER}")
-        time.sleep(0.2)
-        
-        print("✓ 텍스트 입력 및 전송 완료!")
+        print("  → ✓ 완료!")
         return True
             
     except Exception as e:
