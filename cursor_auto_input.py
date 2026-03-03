@@ -59,17 +59,37 @@ def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
         idle_seconds: 대기할 유휴 시간(초)
         check_interval: 확인 간격(초)
     """
-    print(f"  → 사용자 입력 감지 중... ({idle_seconds}초 유휴 대기)")
+    print(f"\n  → 사용자 입력 감지 시작 ({idle_seconds}초간 유휴 상태 대기)")
+    print(f"     [INFO] 키보드나 마우스를 사용하면 타이머가 리셋됩니다")
+    
+    was_active = False  # 이전에 활동 중이었는지 추적
+    start_waiting_time = time.time()
     
     while True:
         idle_time = get_idle_duration()
+        elapsed_total = time.time() - start_waiting_time
         
         if idle_time >= idle_seconds:
-            print(f"  → 유휴 상태 확인 완료 ({idle_time:.1f}초)")
+            print(f"\n  ✓ 유휴 상태 {idle_seconds}초 확인 완료! (총 대기 시간: {elapsed_total:.1f}초)")
+            print(f"  → 이제 복사 및 붙여넣기를 진행합니다...")
             break
         else:
             remaining = idle_seconds - idle_time
-            print(f"     대기 중... (유휴: {idle_time:.1f}초, 남은 시간: {remaining:.1f}초)", end='\r')
+            
+            # 사용자가 방금 입력한 경우 (idle_time이 매우 작은 경우)
+            if idle_time < 1.0 and not was_active:
+                print(f"\n  ⚠ 사용자 입력 감지! 타이머 리셋 (총 대기: {elapsed_total:.1f}초)")
+                was_active = True
+            elif idle_time >= 1.0:
+                was_active = False
+            
+            # 진행 상태 표시
+            progress = (idle_time / idle_seconds) * 100
+            bar_length = 20
+            filled = int(bar_length * idle_time / idle_seconds)
+            bar = '█' * filled + '░' * (bar_length - filled)
+            
+            print(f"     [{bar}] {progress:5.1f}% | 유휴: {idle_time:.1f}초 / {idle_seconds}초 (총 대기: {elapsed_total:.1f}초)    ", end='\r')
             time.sleep(check_interval)
     
     print()  # 줄바꿈
@@ -397,13 +417,18 @@ def monitor_files_and_send(status_file, roll_file, cursor_window, check_interval
         cursor_window: 입력할 Cursor 윈도우 객체
         check_interval: 파일 확인 간격(초)
     """
-    print(f"\n파일 모니터링 시작:")
+    print(f"\n" + "="*80)
+    print(f"파일 모니터링 시작")
+    print(f"="*80)
+    print(f"모니터링 대상 파일:")
     print(f"  - {status_file}")
     print(f"  - {roll_file}")
     print(f"확인 간격: {check_interval}초")
-    print("종료하려면 Ctrl+C를 누르세요.\n")
+    print(f"종료하려면 Ctrl+C를 누르세요.")
+    print(f"="*80 + "\n")
     
     last_hash = None
+    check_count = 0
     
     try:
         while True:
@@ -414,33 +439,55 @@ def monitor_files_and_send(status_file, roll_file, cursor_window, check_interval
                 time.sleep(check_interval)
                 continue
             
+            # 초기화 시 해시 저장
+            if last_hash is None:
+                last_hash = current_hash
+                print(f"[초기화] 파일 모니터링 준비 완료\n")
+            
             # 파일이 변경되었는지 확인
-            if last_hash is not None and current_hash != last_hash:
-                print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] 파일 변경 감지!")
+            if current_hash != last_hash:
+                print(f"\n" + "="*80)
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ★ 파일 변경 감지! ★")
+                print(f"="*80)
                 
                 # 두 파일의 내용을 읽어서 합치기
                 combined_content = read_and_combine_files(status_file, roll_file)
                 
                 if combined_content:
-                    # Cursor에 내용 전송
+                    print(f"파일 내용 읽기 완료 (총 {len(combined_content)} 자)")
+                    
+                    # Cursor에 내용 전송 (사용자 유휴 대기 포함)
                     success = send_text_to_cursor(combined_content, cursor_window)
                     
                     if success:
-                        print("✓ 파일 내용이 Cursor에 전송되었습니다.\n")
+                        print(f"\n" + "="*80)
+                        print(f"✓ 작업 완료! 파일 내용이 Cursor에 전송되었습니다.")
+                        print(f"="*80 + "\n")
                     else:
-                        print("✗ 전송 실패\n")
+                        print(f"\n" + "="*80)
+                        print(f"✗ 전송 실패")
+                        print(f"="*80 + "\n")
+                else:
+                    print(f"✗ 파일 내용을 읽을 수 없습니다.\n")
             
             # 해시 업데이트
             last_hash = current_hash
+            
+            # 모니터링 상태 표시 (10번마다)
+            check_count += 1
+            if check_count % 10 == 0:
+                print(f"[모니터링 중...] 확인 횟수: {check_count}회 ({time.strftime('%H:%M:%S')})", end='\r')
             
             # 대기
             time.sleep(check_interval)
             
     except KeyboardInterrupt:
-        print("\n\n모니터링 중지됨.")
+        print("\n\n" + "="*80)
+        print("모니터링 중지됨 (사용자 요청)")
+        print("="*80)
         return True
     except Exception as e:
-        print(f"모니터링 오류: {e}")
+        print(f"\n✗ 모니터링 오류: {e}")
         import traceback
         traceback.print_exc()
         return False
