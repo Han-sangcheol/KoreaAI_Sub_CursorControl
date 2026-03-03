@@ -350,7 +350,7 @@ def send_text_to_cursor(text, cursor_window):
     Electron 앱 특성상 윈도우 활성화 후 키보드 시뮬레이션 사용
     사용자가 키보드/마우스를 사용 중이면 3.0초간 유휴 상태가 될 때까지 대기
     유휴 대기 중에 미리 클립보드에 복사하여 대기 완료 후 초고속으로 붙여넣기 실행
-    프롬프트 창이 닫혀있을 경우 Ctrl+Alt+B를 여러 번 시도하여 입력창 열기
+    프롬프트 창이 닫혀있을 경우에만 Ctrl+Alt+B로 입력창 열기
     """
     try:
         if not text:
@@ -375,32 +375,45 @@ def send_text_to_cursor(text, cursor_window):
         cursor_window.set_focus()
         time.sleep(0.3)  # 최소한의 활성화 대기
         
-        # 프롬프트 입력창 열기 시도 (최대 3회)
-        print("  → 프롬프트 입력창 열기 (Ctrl+Alt+B)...")
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            send_keys("^%b")  # Ctrl+Alt+B로 입력창 열기/닫기
-            time.sleep(0.3)
-            
-            # 입력창이 열렸는지 확인 (Edit 컨트롤 찾기)
-            try:
-                edit_controls = cursor_window.descendants(control_type="Edit")
-                visible_controls = [ctrl for ctrl in edit_controls if ctrl.is_visible() and ctrl.is_enabled()]
-                if visible_controls:
-                    print(f"  → 입력창 확인 완료 (시도 {attempt + 1}회)")
-                    break
-                else:
-                    # 입력창이 보이지 않으면 다시 열기
-                    if attempt < max_attempts - 1:
-                        print(f"  → 입력창 재시도 중... ({attempt + 1}/{max_attempts})")
-            except:
-                if attempt < max_attempts - 1:
-                    print(f"  → 입력창 재시도 중... ({attempt + 1}/{max_attempts})")
-            
-            if attempt < max_attempts - 1:
-                time.sleep(0.2)
+        # 프롬프트 입력창 상태 확인 및 열기
+        print("  → 프롬프트 입력창 상태 확인...")
+        input_window_open = False
         
-        # 추가 대기 후 붙여넣기
+        try:
+            edit_controls = cursor_window.descendants(control_type="Edit")
+            visible_controls = [ctrl for ctrl in edit_controls if ctrl.is_visible() and ctrl.is_enabled()]
+            
+            if visible_controls:
+                print("  → 입력창이 이미 열려있습니다")
+                input_window_open = True
+            else:
+                print("  → 입력창이 닫혀있습니다. 여는 중...")
+        except:
+            print("  → 입력창 상태 확인 실패. 여는 중...")
+        
+        # 입력창이 닫혀있으면 열기
+        if not input_window_open:
+            max_attempts = 2
+            for attempt in range(max_attempts):
+                send_keys("^%b")  # Ctrl+Alt+B로 입력창 토글
+                time.sleep(0.4)
+                
+                # 입력창이 열렸는지 확인
+                try:
+                    edit_controls = cursor_window.descendants(control_type="Edit")
+                    visible_controls = [ctrl for ctrl in edit_controls if ctrl.is_visible() and ctrl.is_enabled()]
+                    if visible_controls:
+                        print(f"  → 입력창 열기 성공 (시도 {attempt + 1}회)")
+                        input_window_open = True
+                        break
+                    else:
+                        if attempt < max_attempts - 1:
+                            print(f"  → 입력창 재시도... ({attempt + 1}/{max_attempts})")
+                except:
+                    if attempt < max_attempts - 1:
+                        print(f"  → 입력창 재시도... ({attempt + 1}/{max_attempts})")
+        
+        # 입력창 준비 완료 후 약간 대기
         time.sleep(0.2)
         
         # 전체 선택 + 붙여넣기 + Enter를 연속으로 빠르게 실행
@@ -417,9 +430,6 @@ def send_text_to_cursor(text, cursor_window):
         
         print("  → ✓ 완료!")
         return True
-        
-        # 추가 대기 후 붙여넣기
-        time.sleep(0.2)
         
         # 전체 선택 + 붙여넣기 + Enter를 연속으로 빠르게 실행
         print("  → 붙여넣기 실행...")
