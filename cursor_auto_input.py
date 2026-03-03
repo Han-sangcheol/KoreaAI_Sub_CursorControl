@@ -5,6 +5,7 @@ Cursor 프롬프트 입력창 자동화 프로그램
 - Windows 메시지를 사용하여 백그라운드에서 안전하게 입력 (사용자의 작업 방해 없음)
 - 입력 후 자동으로 엔터 키를 눌러 전송
 - 여러 개의 Cursor 인스턴스가 실행 중일 때 사용자가 선택할 수 있도록 지원
+- 사용자 입력 감지: 키보드/마우스 입력이 3초간 없을 때까지 대기 후 실행
 """
 
 import pywinauto
@@ -20,6 +21,58 @@ import win32gui
 import win32con
 import win32api
 import win32clipboard
+import ctypes
+from ctypes import windll, Structure, c_long, byref
+
+
+class LASTINPUTINFO(Structure):
+    """
+    Windows API의 LASTINPUTINFO 구조체
+    마지막 입력 시간 정보를 가져오기 위한 구조체
+    """
+    _fields_ = [
+        ('cbSize', c_long),
+        ('dwTime', c_long),
+    ]
+
+
+def get_idle_duration():
+    """
+    사용자가 마지막으로 키보드나 마우스를 사용한 이후 경과 시간(초) 반환
+    
+    Returns:
+        float: 유휴 시간(초)
+    """
+    lastInputInfo = LASTINPUTINFO()
+    lastInputInfo.cbSize = ctypes.sizeof(lastInputInfo)
+    windll.user32.GetLastInputInfo(byref(lastInputInfo))
+    
+    millis = windll.kernel32.GetTickCount() - lastInputInfo.dwTime
+    return millis / 1000.0
+
+
+def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
+    """
+    사용자가 키보드나 마우스를 사용하지 않는 상태가 지정된 시간만큼 지속될 때까지 대기
+    
+    Args:
+        idle_seconds: 대기할 유휴 시간(초)
+        check_interval: 확인 간격(초)
+    """
+    print(f"  → 사용자 입력 감지 중... ({idle_seconds}초 유휴 대기)")
+    
+    while True:
+        idle_time = get_idle_duration()
+        
+        if idle_time >= idle_seconds:
+            print(f"  → 유휴 상태 확인 완료 ({idle_time:.1f}초)")
+            break
+        else:
+            remaining = idle_seconds - idle_time
+            print(f"     대기 중... (유휴: {idle_time:.1f}초, 남은 시간: {remaining:.1f}초)", end='\r')
+            time.sleep(check_interval)
+    
+    print()  # 줄바꿈
 
 
 def get_files_combined_hash(status_file, roll_file):
@@ -265,6 +318,7 @@ def send_text_to_cursor(text, cursor_window):
     """
     텍스트를 지정된 Cursor 프롬프트 입력창에 입력하고 엔터
     Electron 앱 특성상 윈도우 활성화 후 키보드 시뮬레이션 사용
+    사용자가 키보드/마우스를 사용 중이면 3초간 유휴 상태가 될 때까지 대기
     """
     try:
         if not text:
@@ -272,6 +326,9 @@ def send_text_to_cursor(text, cursor_window):
             return False
         
         print(f"입력할 텍스트: {text[:50]}...")
+        
+        # 사용자 입력이 없는 상태가 3초 지속될 때까지 대기
+        wait_for_user_idle(idle_seconds=3.0, check_interval=0.5)
         
         # 클립보드에 텍스트 복사
         import pyperclip
