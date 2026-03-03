@@ -378,16 +378,18 @@ def send_text_to_cursor(text, cursor_window):
         # 프롬프트 입력창 상태 확인 및 열기
         print("  → 프롬프트 입력창 상태 확인...")
         input_window_open = False
+        initial_edit_count = 0
         
         try:
             edit_controls = cursor_window.descendants(control_type="Edit")
             visible_controls = [ctrl for ctrl in edit_controls if ctrl.is_visible() and ctrl.is_enabled()]
+            initial_edit_count = len(visible_controls)
             
             if visible_controls:
-                print("  → 입력창이 이미 열려있습니다")
+                print(f"  → 입력창이 이미 열려있습니다 (Edit 컨트롤: {initial_edit_count}개)")
                 input_window_open = True
             else:
-                print("  → 입력창이 닫혀있습니다. 여는 중...")
+                print(f"  → 입력창이 닫혀있습니다 (Edit 컨트롤: {initial_edit_count}개). 여는 중...")
         except Exception as e:
             print(f"  → 입력창 상태 확인 실패 ({e}). 여는 중...")
         
@@ -399,17 +401,19 @@ def send_text_to_cursor(text, cursor_window):
                 send_keys("^%b")  # Ctrl+Alt+B로 입력창 토글
                 time.sleep(1.2)  # 입력창 열리는 시간 충분히 대기 (1초 이상 필요)
                 
-                # 입력창이 열렸는지 확인
+                # 입력창이 열렸는지 확인 (Edit 컨트롤 개수 변화로 판단)
                 try:
                     edit_controls = cursor_window.descendants(control_type="Edit")
                     visible_controls = [ctrl for ctrl in edit_controls if ctrl.is_visible() and ctrl.is_enabled()]
+                    current_edit_count = len(visible_controls)
                     
-                    if visible_controls:
-                        print(f"  → ✓ 입력창 열기 성공!")
+                    # Edit 컨트롤이 증가했거나 존재하면 성공
+                    if visible_controls and (current_edit_count > initial_edit_count or current_edit_count > 0):
+                        print(f"  → ✓ 입력창 열기 성공! (Edit 컨트롤: {initial_edit_count} → {current_edit_count}개)")
                         input_window_open = True
                         break
                     else:
-                        print(f"  → ✗ 입력창 아직 닫혀있음")
+                        print(f"  → ✗ 입력창 아직 닫혀있음 (Edit 컨트롤: {current_edit_count}개)")
                 except Exception as e:
                     print(f"  → ✗ 확인 실패: {e}")
         
