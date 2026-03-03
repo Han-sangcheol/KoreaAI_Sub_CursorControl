@@ -347,6 +347,7 @@ def send_text_to_cursor(text, cursor_window):
     Electron 앱 특성상 윈도우 활성화 후 키보드 시뮬레이션 사용
     사용자가 키보드/마우스를 사용 중이면 3.0초간 유휴 상태가 될 때까지 대기
     유휴 대기 중에 미리 클립보드에 복사하여 대기 완료 후 초고속으로 붙여넣기 실행
+    프롬프트 창이 닫혀있을 경우 Ctrl+L을 여러 번 시도하여 입력창 열기
     """
     try:
         if not text:
@@ -371,16 +372,40 @@ def send_text_to_cursor(text, cursor_window):
         cursor_window.set_focus()
         time.sleep(0.3)  # 최소한의 활성화 대기
         
-        # Ctrl+L로 입력창 포커스 (가장 빠른 방법)
-        send_keys("^l")
-        time.sleep(0.15)
+        # 프롬프트 입력창 열기 시도 (최대 3회)
+        print("  → 프롬프트 입력창 열기...")
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            send_keys("^l")  # Ctrl+L로 입력창 열기
+            time.sleep(0.2)
+            
+            # 입력창이 열렸는지 확인 (Edit 컨트롤 찾기)
+            try:
+                edit_controls = cursor_window.descendants(control_type="Edit")
+                if any(ctrl.is_visible() and ctrl.is_enabled() for ctrl in edit_controls):
+                    print(f"  → 입력창 확인 완료 (시도 {attempt + 1}회)")
+                    break
+            except:
+                pass
+            
+            if attempt < max_attempts - 1:
+                print(f"  → 입력창 재시도 중... ({attempt + 1}/{max_attempts})")
+                time.sleep(0.2)
+        
+        # 추가 대기 후 붙여넣기
+        time.sleep(0.2)
         
         # 전체 선택 + 붙여넣기 + Enter를 연속으로 빠르게 실행
+        print("  → 붙여넣기 실행...")
         send_keys("^a")  # Ctrl+A (전체 선택)
         time.sleep(0.05)
         send_keys("^v")  # Ctrl+V (붙여넣기)
-        time.sleep(0.3)  # 붙여넣기 완료 대기
-        send_keys("{ENTER}")  # Enter
+        time.sleep(0.4)  # 붙여넣기 완료 대기 (큰 텍스트 대비)
+        
+        # Enter 키 전송
+        print("  → Enter 전송...")
+        send_keys("{ENTER}")
+        time.sleep(0.1)
         
         print("  → ✓ 완료!")
         return True
