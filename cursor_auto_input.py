@@ -54,6 +54,7 @@ def get_idle_duration():
 def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
     """
     사용자가 키보드나 마우스를 사용하지 않는 상태가 지정된 시간만큼 지속될 때까지 대기
+    이 함수 호출 시점부터 idle_seconds 동안 입력이 없어야 함
     
     Args:
         idle_seconds: 대기할 유휴 시간(초)
@@ -62,35 +63,41 @@ def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
     print(f"\n  → 사용자 입력 감지 시작 ({idle_seconds}초간 유휴 상태 대기)")
     print(f"     [INFO] 키보드나 마우스를 사용하면 타이머가 리셋됩니다")
     
-    was_active = False  # 이전에 활동 중이었는지 추적
-    start_waiting_time = time.time()
+    # 이 시점부터 idle_seconds 동안 입력이 없어야 함
+    idle_start_time = time.time()
+    last_input_detected_time = time.time()
+    total_start_time = time.time()
     
     while True:
-        idle_time = get_idle_duration()
-        elapsed_total = time.time() - start_waiting_time
+        current_time = time.time()
+        system_idle_time = get_idle_duration()
+        elapsed_since_last_input = current_time - last_input_detected_time
+        elapsed_total = current_time - total_start_time
         
-        if idle_time >= idle_seconds:
+        # 시스템 유휴 시간이 0.5초 미만이면 사용자가 방금 입력함
+        if system_idle_time < 0.5:
+            if elapsed_since_last_input > 0.5:  # 이전에 유휴 상태였다면
+                print(f"\n  ⚠ 사용자 입력 감지! 타이머 리셋 (총 대기: {elapsed_total:.1f}초)")
+            last_input_detected_time = current_time
+            idle_start_time = current_time
+        
+        # 마지막 입력 이후 경과 시간 계산
+        time_since_last_input = current_time - last_input_detected_time
+        
+        # idle_seconds 이상 입력이 없으면 완료
+        if time_since_last_input >= idle_seconds:
             print(f"\n  ✓ 유휴 상태 {idle_seconds}초 확인 완료! (총 대기 시간: {elapsed_total:.1f}초)")
             print(f"  → 이제 복사 및 붙여넣기를 진행합니다...")
             break
-        else:
-            remaining = idle_seconds - idle_time
-            
-            # 사용자가 방금 입력한 경우 (idle_time이 매우 작은 경우)
-            if idle_time < 1.0 and not was_active:
-                print(f"\n  ⚠ 사용자 입력 감지! 타이머 리셋 (총 대기: {elapsed_total:.1f}초)")
-                was_active = True
-            elif idle_time >= 1.0:
-                was_active = False
-            
-            # 진행 상태 표시
-            progress = (idle_time / idle_seconds) * 100
-            bar_length = 20
-            filled = int(bar_length * idle_time / idle_seconds)
-            bar = '█' * filled + '░' * (bar_length - filled)
-            
-            print(f"     [{bar}] {progress:5.1f}% | 유휴: {idle_time:.1f}초 / {idle_seconds}초 (총 대기: {elapsed_total:.1f}초)    ", end='\r')
-            time.sleep(check_interval)
+        
+        # 진행 상태 표시
+        progress = (time_since_last_input / idle_seconds) * 100
+        bar_length = 20
+        filled = int(bar_length * time_since_last_input / idle_seconds)
+        bar = '█' * filled + '░' * (bar_length - filled)
+        
+        print(f"     [{bar}] {progress:5.1f}% | 유휴: {time_since_last_input:.1f}초 / {idle_seconds}초 (총 대기: {elapsed_total:.1f}초)    ", end='\r')
+        time.sleep(check_interval)
     
     print()  # 줄바꿈
 
@@ -347,18 +354,23 @@ def send_text_to_cursor(text, cursor_window):
         
         print(f"입력할 텍스트: {text[:50]}...")
         
-        # 사용자 입력이 없는 상태가 3초 지속될 때까지 대기
-        wait_for_user_idle(idle_seconds=3.0, check_interval=0.5)
+        # 사용자 입력이 없는 상태가 3.5초 지속될 때까지 대기 (확실한 대기)
+        wait_for_user_idle(idle_seconds=3.5, check_interval=0.5)
+        
+        # 추가 안전 대기 시간
+        print("  → 추가 안전 대기 중... (0.5초)")
+        time.sleep(0.5)
         
         # 클립보드에 텍스트 복사
         import pyperclip
         pyperclip.copy(text)
         print("  → 클립보드에 복사 완료")
+        time.sleep(0.3)  # 클립보드 복사 안정화 대기
         
         # Cursor 윈도우를 활성화
         print("  → Cursor 윈도우 활성화 중...")
         cursor_window.set_focus()
-        time.sleep(0.8)  # 윈도우 활성화 대기 시간 증가
+        time.sleep(1.0)  # 윈도우 활성화 대기 시간 증가
         
         # 채팅 입력창 찾기
         chat_input = find_chat_input(cursor_window)
@@ -368,34 +380,34 @@ def send_text_to_cursor(text, cursor_window):
                 # 입력창 클릭하여 포커스
                 print("  → 입력창 클릭 시도...")
                 chat_input.click_input()
-                time.sleep(0.3)
+                time.sleep(0.5)
                 print("  → 입력창 포커스 완료")
             except Exception as e:
                 print(f"  → 입력창 클릭 실패, set_focus 시도... ({e})")
                 try:
                     chat_input.set_focus()
-                    time.sleep(0.3)
+                    time.sleep(0.5)
                 except:
                     print("  → set_focus도 실패, Ctrl+L 사용...")
                     send_keys("^l")
-                    time.sleep(0.3)
+                    time.sleep(0.5)
         else:
             # 입력창을 찾지 못한 경우 Ctrl+L 사용
             print("  → 입력창을 찾지 못함, Ctrl+L 사용...")
             send_keys("^l")
-            time.sleep(0.5)
+            time.sleep(0.7)
         
         # 기존 내용 전체 선택 후 붙여넣기
         print("  → 텍스트 붙여넣기 중...")
         send_keys("^a")  # Ctrl+A (전체 선택)
-        time.sleep(0.1)
+        time.sleep(0.2)
         send_keys("^v")  # Ctrl+V (붙여넣기)
-        time.sleep(0.5)  # 붙여넣기 완료 대기 시간 증가
+        time.sleep(0.8)  # 붙여넣기 완료 대기 시간 증가
         
         # Enter 키 전송
         print("  → Enter 키 전송...")
         send_keys("{ENTER}")
-        time.sleep(0.2)
+        time.sleep(0.3)
         
         print("✓ 텍스트 입력 및 전송 완료!")
         return True
