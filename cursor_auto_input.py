@@ -373,7 +373,7 @@ def send_text_to_cursor(text, cursor_window):
         
         # Cursor 윈도우를 활성화
         cursor_window.set_focus()
-        time.sleep(0.3)  # 최소한의 활성화 대기
+        time.sleep(0.5)  # 윈도우 활성화 충분한 대기
         
         # 프롬프트 입력창 상태 확인 및 열기
         print("  → 프롬프트 입력창 상태 확인...")
@@ -388,40 +388,44 @@ def send_text_to_cursor(text, cursor_window):
                 input_window_open = True
             else:
                 print("  → 입력창이 닫혀있습니다. 여는 중...")
-        except:
-            print("  → 입력창 상태 확인 실패. 여는 중...")
+        except Exception as e:
+            print(f"  → 입력창 상태 확인 실패 ({e}). 여는 중...")
         
-        # 입력창이 닫혀있으면 열기
+        # 입력창이 닫혀있으면 열기 (최대 4회 시도)
         if not input_window_open:
-            max_attempts = 2
+            max_attempts = 4
             for attempt in range(max_attempts):
+                print(f"  → Ctrl+Alt+B 시도 {attempt + 1}/{max_attempts}")
                 send_keys("^%b")  # Ctrl+Alt+B로 입력창 토글
-                time.sleep(0.4)
+                time.sleep(0.6)  # 입력창 열리는 시간 충분히 대기
                 
                 # 입력창이 열렸는지 확인
                 try:
                     edit_controls = cursor_window.descendants(control_type="Edit")
                     visible_controls = [ctrl for ctrl in edit_controls if ctrl.is_visible() and ctrl.is_enabled()]
+                    
                     if visible_controls:
-                        print(f"  → 입력창 열기 성공 (시도 {attempt + 1}회)")
+                        print(f"  → ✓ 입력창 열기 성공!")
                         input_window_open = True
                         break
                     else:
-                        if attempt < max_attempts - 1:
-                            print(f"  → 입력창 재시도... ({attempt + 1}/{max_attempts})")
-                except:
-                    if attempt < max_attempts - 1:
-                        print(f"  → 입력창 재시도... ({attempt + 1}/{max_attempts})")
+                        print(f"  → ✗ 입력창 아직 닫혀있음")
+                except Exception as e:
+                    print(f"  → ✗ 확인 실패: {e}")
         
-        # 입력창 준비 완료 후 약간 대기
-        time.sleep(0.2)
+        # 입력창이 열리지 않았으면 경고
+        if not input_window_open:
+            print("  ⚠ 경고: 입력창을 열지 못했습니다. 붙여넣기를 시도합니다...")
         
-        # 전체 선택 + 붙여넣기 + Enter를 연속으로 빠르게 실행
+        # 입력창 준비 완료 후 대기
+        time.sleep(0.3)
+        
+        # 전체 선택 + 붙여넣기 + Enter를 연속으로 실행
         print("  → 붙여넣기 실행...")
         send_keys("^a")  # Ctrl+A (전체 선택)
         time.sleep(0.05)
         send_keys("^v")  # Ctrl+V (붙여넣기)
-        time.sleep(0.4)  # 붙여넣기 완료 대기 (큰 텍스트 대비)
+        time.sleep(0.5)  # 붙여넣기 완료 대기
         
         # Enter 키 전송
         print("  → Enter 전송...")
@@ -430,20 +434,6 @@ def send_text_to_cursor(text, cursor_window):
         
         print("  → ✓ 완료!")
         return True
-        
-        # 전체 선택 + 붙여넣기 + Enter를 연속으로 빠르게 실행
-        print("  → 붙여넣기 실행...")
-        send_keys("^a")  # Ctrl+A (전체 선택)
-        time.sleep(0.05)
-        send_keys("^v")  # Ctrl+V (붙여넣기)
-        time.sleep(0.4)  # 붙여넣기 완료 대기 (큰 텍스트 대비)
-        
-        # Enter 키 전송
-        print("  → Enter 전송...")
-        send_keys("{ENTER}")
-        time.sleep(0.1)
-        
-        print("  → ✓ 완료!")
         return True
             
     except Exception as e:
