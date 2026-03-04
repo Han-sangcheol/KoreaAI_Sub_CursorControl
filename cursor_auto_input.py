@@ -351,7 +351,12 @@ def send_text_to_cursor(text, cursor_window):
     사용자가 키보드/마우스를 사용 중이면 3.0초간 유휴 상태가 될 때까지 대기
     유휴 대기 중에 미리 클립보드에 복사하여 대기 완료 후 초고속으로 붙여넣기 실행
     프롬프트 창이 닫혀있을 경우에만 Ctrl+Alt+B로 입력창 열기
+    
+    전체 실행 시간이 너무 길면 타임아웃으로 종료하여 모니터링 루프가 멈추지 않도록 함
     """
+    start_time = time.time()
+    timeout_seconds = 30.0  # 최대 30초 제한
+    
     try:
         if not text:
             print("입력할 텍스트가 비어있습니다.")
@@ -365,8 +370,18 @@ def send_text_to_cursor(text, cursor_window):
         pyperclip.copy(text)
         print("  → 준비 완료!")
         
+        # 타임아웃 체크
+        if time.time() - start_time > timeout_seconds:
+            print(f"  ⚠ 타임아웃 ({timeout_seconds}초 초과)")
+            return False
+        
         # 사용자 입력이 없는 상태가 3.0초 지속될 때까지 대기
         wait_for_user_idle(idle_seconds=3.0, check_interval=0.5)
+        
+        # 타임아웃 체크
+        if time.time() - start_time > timeout_seconds:
+            print(f"  ⚠ 타임아웃 ({timeout_seconds}초 초과)")
+            return False
         
         # ★ 유휴 상태 확인 즉시 초고속 붙여넣기 시작
         print("  → ⚡ 초고속 붙여넣기 시작!")
@@ -381,7 +396,15 @@ def send_text_to_cursor(text, cursor_window):
         initial_edit_count = 0
         
         try:
+            # descendants() 호출이 오래 걸릴 수 있으므로 시간 체크
+            check_start = time.time()
             edit_controls = cursor_window.descendants(control_type="Edit")
+            
+            # 5초 이상 걸리면 중단
+            if time.time() - check_start > 5.0:
+                print(f"  ⚠ descendants() 호출이 너무 오래 걸림 ({time.time() - check_start:.1f}초)")
+                raise TimeoutError("descendants() timeout")
+            
             visible_controls = [ctrl for ctrl in edit_controls if ctrl.is_visible() and ctrl.is_enabled()]
             initial_edit_count = len(visible_controls)
             
@@ -393,13 +416,23 @@ def send_text_to_cursor(text, cursor_window):
         except Exception as e:
             print(f"  → 입력창 상태 확인 실패 ({e}). 여는 중...")
         
-        # 입력창이 닫혀있으면 열기 (최대 4회 시도)
+        # 타임아웃 체크
+        if time.time() - start_time > timeout_seconds:
+            print(f"  ⚠ 전체 타임아웃 ({timeout_seconds}초 초과)")
+            return False
+        
+        # 입력창이 닫혀있으면 열기 (최대 2회로 축소)
         if not input_window_open:
-            max_attempts = 4
+            max_attempts = 2  # 4회에서 2회로 축소
             for attempt in range(max_attempts):
+                # 타임아웃 체크
+                if time.time() - start_time > timeout_seconds:
+                    print(f"  ⚠ 전체 타임아웃 ({timeout_seconds}초 초과)")
+                    return False
+                
                 print(f"  → Ctrl+Alt+B 시도 {attempt + 1}/{max_attempts}")
                 send_keys("^%b")  # Ctrl+Alt+B로 입력창 토글
-                time.sleep(1.2)  # 입력창 열리는 시간 충분히 대기 (1초 이상 필요)
+                time.sleep(1.0)  # 1.2초에서 1.0초로 단축
                 
                 # 입력창이 열렸는지 확인 (Edit 컨트롤 개수 변화로 판단)
                 try:
