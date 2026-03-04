@@ -395,14 +395,9 @@ def send_text_to_cursor(text, cursor_window):
         except Exception as e:
             print(f"  ⚠ 윈도우 활성화 실패: {e}")
         
-        # Ctrl+L로 입력창 포커스 (descendants 호출 없이 빠르게 진행)
-        print("  → Ctrl+L로 입력창 포커스...")
-        try:
-            send_keys("^l")  # Ctrl+L
-            time.sleep(0.5)
-            print("  → 입력창 포커스 완료")
-        except Exception as e:
-            print(f"  ⚠ Ctrl+L 실패: {e}")
+        # 입력창이 이미 열려있다고 가정하고 바로 붙여넣기 시도
+        # (Ctrl+L이나 Ctrl+Alt+B는 토글이므로 사용하지 않음)
+        print("  → 입력창에 직접 붙여넣기 시도...")
         
         # 타임아웃 체크
         if time.time() - start_time > timeout_seconds:
