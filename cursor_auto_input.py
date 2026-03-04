@@ -387,92 +387,27 @@ def send_text_to_cursor(text, cursor_window):
         print("  → ⚡ 초고속 붙여넣기 시작!")
         
         # Cursor 윈도우를 활성화
-        cursor_window.set_focus()
-        time.sleep(0.5)  # 윈도우 활성화 충분한 대기
-        
-        # 프롬프트 입력창 상태 확인 및 열기
-        print("  → 프롬프트 입력창 상태 확인...")
-        input_window_open = False
-        initial_edit_count = 0
-        
+        print("  → Cursor 윈도우 활성화...")
         try:
-            # descendants() 호출이 오래 걸릴 수 있으므로 시간 체크
-            check_start = time.time()
-            edit_controls = cursor_window.descendants(control_type="Edit")
-            
-            # 5초 이상 걸리면 중단
-            if time.time() - check_start > 5.0:
-                print(f"  ⚠ descendants() 호출이 너무 오래 걸림 ({time.time() - check_start:.1f}초)")
-                raise TimeoutError("descendants() timeout")
-            
-            visible_controls = [ctrl for ctrl in edit_controls if ctrl.is_visible() and ctrl.is_enabled()]
-            initial_edit_count = len(visible_controls)
-            
-            if visible_controls:
-                print(f"  → 입력창이 이미 열려있습니다 (Edit 컨트롤: {initial_edit_count}개)")
-                input_window_open = True
-            else:
-                print(f"  → 입력창이 닫혀있습니다 (Edit 컨트롤: {initial_edit_count}개). 여는 중...")
+            cursor_window.set_focus()
+            time.sleep(0.5)
+            print("  → 윈도우 활성화 완료")
         except Exception as e:
-            print(f"  → 입력창 상태 확인 실패 ({e}). 여는 중...")
+            print(f"  ⚠ 윈도우 활성화 실패: {e}")
+        
+        # Ctrl+L로 입력창 포커스 (descendants 호출 없이 빠르게 진행)
+        print("  → Ctrl+L로 입력창 포커스...")
+        try:
+            send_keys("^l")  # Ctrl+L
+            time.sleep(0.5)
+            print("  → 입력창 포커스 완료")
+        except Exception as e:
+            print(f"  ⚠ Ctrl+L 실패: {e}")
         
         # 타임아웃 체크
         if time.time() - start_time > timeout_seconds:
             print(f"  ⚠ 전체 타임아웃 ({timeout_seconds}초 초과)")
             return False
-        
-        # 입력창이 닫혀있으면 열기 (최대 2회로 축소)
-        if not input_window_open:
-            max_attempts = 2  # 4회에서 2회로 축소
-            for attempt in range(max_attempts):
-                # 타임아웃 체크
-                if time.time() - start_time > timeout_seconds:
-                    print(f"  ⚠ 전체 타임아웃 ({timeout_seconds}초 초과)")
-                    return False
-                
-                print(f"  → Ctrl+Alt+B 시도 {attempt + 1}/{max_attempts}")
-                send_keys("^%b")  # Ctrl+Alt+B로 입력창 토글
-                time.sleep(1.0)  # 1.2초에서 1.0초로 단축
-                
-                # 입력창이 열렸는지 확인 (Edit 컨트롤 개수 변화로 판단)
-                try:
-                    edit_controls = cursor_window.descendants(control_type="Edit")
-                    visible_controls = [ctrl for ctrl in edit_controls if ctrl.is_visible() and ctrl.is_enabled()]
-                    current_edit_count = len(visible_controls)
-                    
-                    # Edit 컨트롤이 증가했거나 존재하면 성공
-                    if visible_controls and (current_edit_count > initial_edit_count or current_edit_count > 0):
-                        print(f"  → ✓ 입력창 열기 성공! (Edit 컨트롤: {initial_edit_count} → {current_edit_count}개)")
-                        input_window_open = True
-                        break
-                    else:
-                        print(f"  → ✗ 입력창 아직 닫혀있음 (Edit 컨트롤: {current_edit_count}개)")
-                except Exception as e:
-                    print(f"  → ✗ 확인 실패: {e}")
-        
-        # 입력창이 열리지 않았으면 경고
-        if not input_window_open:
-            print("  ⚠ 경고: 입력창을 열지 못했습니다. 붙여넣기를 시도합니다...")
-        
-        # 입력창 준비 완료 후 대기
-        time.sleep(0.3)
-        
-        # Edit 컨트롤에 직접 포커스 시도
-        print("  → Edit 컨트롤 포커스 설정...")
-        try:
-            edit_controls = cursor_window.descendants(control_type="Edit")
-            visible_controls = [ctrl for ctrl in edit_controls if ctrl.is_visible() and ctrl.is_enabled()]
-            
-            if visible_controls:
-                # 가장 마지막(가장 아래) Edit 컨트롤에 포커스
-                target_control = visible_controls[-1]
-                target_control.set_focus()
-                time.sleep(0.3)
-                print(f"  → Edit 컨트롤 포커스 완료 (인덱스: {len(visible_controls)-1})")
-            else:
-                print("  ⚠ Edit 컨트롤을 찾을 수 없습니다")
-        except Exception as e:
-            print(f"  ⚠ Edit 포커스 설정 오류: {e}")
         
         # 전체 선택 + 붙여넣기 + Enter를 연속으로 실행
         print("  → 붙여넣기 실행...")
