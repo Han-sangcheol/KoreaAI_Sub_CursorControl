@@ -488,14 +488,32 @@ def send_text_to_cursor(text, cursor_window):
         # ★ 유휴 상태 확인 즉시 초고속 붙여넣기 시작
         print("  → ⚡ 초고속 붙여넣기 시작!")
         
-        # set_focus()는 블로킹될 수 있으므로 제거
-        # 사용자가 이미 Cursor 윈도우를 보고 있다고 가정하고 바로 붙여넣기
-        print("  → 활성 윈도우에 직접 붙여넣기...")
+        # Cursor 윈도우를 전면으로 가져오기 (Win32 API 사용)
+        try:
+            print("  → Cursor 윈도우 활성화...")
+            hwnd = cursor_window.handle
+            # 최소화 상태면 복원
+            if win32gui.IsIconic(hwnd):
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            # 윈도우를 전면으로
+            win32gui.SetForegroundWindow(hwnd)
+            time.sleep(0.3)  # 윈도우 활성화 대기
+            print("  → Cursor 윈도우 활성화 완료")
+        except Exception as e:
+            print(f"  ⚠ 윈도우 활성화 오류 (계속 진행): {e}")
         
         # 타임아웃 체크
         if time.time() - start_time > timeout_seconds:
             print(f"  ⚠ 전체 타임아웃 ({timeout_seconds}초 초과)")
             return False
+        
+        # Ctrl+L로 프롬프트 입력창 포커스
+        try:
+            print("  → 프롬프트 입력창 포커스...")
+            send_keys("^l")  # Ctrl+L
+            time.sleep(0.5)  # 입력창 포커스 대기
+        except Exception as e:
+            print(f"  ⚠ 프롬프트 포커스 오류: {e}")
         
         # ★ 사용자 입력 차단 시작 (붙여넣기 중 방해 방지)
         input_blocked = block_user_input(True)
@@ -505,13 +523,13 @@ def send_text_to_cursor(text, cursor_window):
             print("  → 붙여넣기 실행...")
             try:
                 send_keys("^a")  # Ctrl+A (전체 선택)
-                time.sleep(0.1)
+                time.sleep(0.15)
             except Exception as e:
                 print(f"  ⚠ 전체 선택 오류: {e}")
             
             try:
                 send_keys("^v")  # Ctrl+V (붙여넣기)
-                time.sleep(0.8)  # 붙여넣기 완료 대기 증가
+                time.sleep(1.0)  # 붙여넣기 완료 대기 (대용량 텍스트 고려)
                 print("  → 붙여넣기 명령 전송 완료")
             except Exception as e:
                 print(f"  ⚠ 붙여넣기 오류: {e}")
@@ -521,7 +539,7 @@ def send_text_to_cursor(text, cursor_window):
             print("  → Enter 전송...")
             try:
                 send_keys("{ENTER}")
-                time.sleep(0.2)
+                time.sleep(0.3)
             except Exception as e:
                 print(f"  ⚠ Enter 전송 오류: {e}")
             
