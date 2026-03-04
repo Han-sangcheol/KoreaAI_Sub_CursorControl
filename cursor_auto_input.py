@@ -424,17 +424,35 @@ def send_text_to_cursor(text, cursor_window):
         # 입력창 준비 완료 후 대기
         time.sleep(0.3)
         
+        # Edit 컨트롤에 직접 포커스 시도
+        print("  → Edit 컨트롤 포커스 설정...")
+        try:
+            edit_controls = cursor_window.descendants(control_type="Edit")
+            visible_controls = [ctrl for ctrl in edit_controls if ctrl.is_visible() and ctrl.is_enabled()]
+            
+            if visible_controls:
+                # 가장 마지막(가장 아래) Edit 컨트롤에 포커스
+                target_control = visible_controls[-1]
+                target_control.set_focus()
+                time.sleep(0.3)
+                print(f"  → Edit 컨트롤 포커스 완료 (인덱스: {len(visible_controls)-1})")
+            else:
+                print("  ⚠ Edit 컨트롤을 찾을 수 없습니다")
+        except Exception as e:
+            print(f"  ⚠ Edit 포커스 설정 오류: {e}")
+        
         # 전체 선택 + 붙여넣기 + Enter를 연속으로 실행
         print("  → 붙여넣기 실행...")
         try:
             send_keys("^a")  # Ctrl+A (전체 선택)
-            time.sleep(0.05)
+            time.sleep(0.1)
         except Exception as e:
             print(f"  ⚠ 전체 선택 오류: {e}")
         
         try:
             send_keys("^v")  # Ctrl+V (붙여넣기)
-            time.sleep(0.5)  # 붙여넣기 완료 대기
+            time.sleep(0.8)  # 붙여넣기 완료 대기 증가
+            print("  → 붙여넣기 명령 전송 완료")
         except Exception as e:
             print(f"  ⚠ 붙여넣기 오류: {e}")
             # 붙여넣기 실패해도 계속 진행
@@ -443,7 +461,7 @@ def send_text_to_cursor(text, cursor_window):
         print("  → Enter 전송...")
         try:
             send_keys("{ENTER}")
-            time.sleep(0.1)
+            time.sleep(0.2)
         except Exception as e:
             print(f"  ⚠ Enter 전송 오류: {e}")
         
