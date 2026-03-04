@@ -21,6 +21,7 @@ import win32gui
 import win32con
 import win32api
 import win32clipboard
+import win32process
 import ctypes
 from ctypes import windll, Structure, c_long, byref
 import threading
@@ -149,6 +150,65 @@ def get_idle_duration():
     
     millis = windll.kernel32.GetTickCount() - lastInputInfo.dwTime
     return millis / 1000.0
+
+
+def force_window_to_foreground(hwnd):
+    """
+    윈도우를 강제로 전면으로 가져오기 (Windows 보안 정책 우회)
+    
+    Args:
+        hwnd: 윈도우 핸들
+    
+    Returns:
+        bool: 성공 여부
+    """
+    try:
+        # 1. 현재 전면 윈도우 확인
+        current_foreground = win32gui.GetForegroundWindow()
+        
+        # 2. 이미 전면이면 성공
+        if current_foreground == hwnd:
+            return True
+        
+        # 3. 최소화 상태면 복원
+        if win32gui.IsIconic(hwnd):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            time.sleep(0.1)
+        
+        # 4. 윈도우를 보이게 설정
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+        time.sleep(0.05)
+        
+        # 5. 현재 프로세스와 전면 윈도우의 스레드를 연결 (Windows 보안 우회)
+        if current_foreground != 0:
+            current_thread = win32api.GetCurrentThreadId()
+            foreground_thread = win32process.GetWindowThreadProcessId(current_foreground)[0]
+            
+            if current_thread != foreground_thread:
+                # 스레드 연결
+                windll.user32.AttachThreadInput(current_thread, foreground_thread, True)
+                
+                # 윈도우를 전면으로
+                win32gui.SetForegroundWindow(hwnd)
+                win32gui.BringWindowToTop(hwnd)
+                win32gui.SetActiveWindow(hwnd)
+                
+                # 스레드 분리
+                windll.user32.AttachThreadInput(current_thread, foreground_thread, False)
+            else:
+                win32gui.SetForegroundWindow(hwnd)
+        else:
+            win32gui.SetForegroundWindow(hwnd)
+        
+        time.sleep(0.2)
+        
+        # 6. 확인
+        new_foreground = win32gui.GetForegroundWindow()
+        return new_foreground == hwnd
+        
+    except Exception as e:
+        print(f"  ⚠ 윈도우 활성화 오류: {e}")
+        return False
 
 
 def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
@@ -488,19 +548,15 @@ def send_text_to_cursor(text, cursor_window):
         # ★ 유휴 상태 확인 즉시 초고속 붙여넣기 시작
         print("  → ⚡ 초고속 붙여넣기 시작!")
         
-        # Cursor 윈도우를 전면으로 가져오기 (Win32 API 사용)
-        try:
-            print("  → Cursor 윈도우 활성화...")
-            hwnd = cursor_window.handle
-            # 최소화 상태면 복원
-            if win32gui.IsIconic(hwnd):
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            # 윈도우를 전면으로
-            win32gui.SetForegroundWindow(hwnd)
-            time.sleep(0.3)  # 윈도우 활성화 대기
-            print("  → Cursor 윈도우 활성화 완료")
-        except Exception as e:
-            print(f"  ⚠ 윈도우 활성화 오류 (계속 진행): {e}")
+        # Cursor 윈도우를 강제로 전면으로 가져오기
+        print("  → Cursor 윈도우 활성화...")
+        hwnd = cursor_window.handle
+        
+        success = force_window_to_foreground(hwnd)
+        if success:
+            print("  → ✓ Cursor 윈도우 활성화 완료")
+        else:
+            print("  → ⚠ 윈도우 활성화 실패했지만 계속 진행...")
         
         # 타임아웃 체크
         if time.time() - start_time > timeout_seconds:
