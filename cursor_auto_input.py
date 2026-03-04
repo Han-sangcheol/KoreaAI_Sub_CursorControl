@@ -23,6 +23,7 @@ import win32api
 import win32clipboard
 import ctypes
 from ctypes import windll, Structure, c_long, byref
+import threading
 
 
 class LASTINPUTINFO(Structure):
@@ -36,9 +37,43 @@ class LASTINPUTINFO(Structure):
     ]
 
 
-def block_user_input(block=True):
+# 전역 변수로 입력 차단 상태 추적
+input_block_active = False
+safety_timer = None
+
+
+def emergency_unblock_input():
     """
-    사용자의 키보드와 마우스 입력을 차단하거나 해제
+    긴급 입력 차단 해제 함수 (2초 후 자동 실행)
+    """
+    global input_block_active
+    
+    print("  ⚠ [안전장치] 2초 경과 - 긴급 차단 해제 시작")
+    
+    # 3회 연속 해제 시도
+    for attempt in range(3):
+        try:
+            result = windll.user32.BlockInput(False)
+            if result:
+                print(f"  ✓ [안전장치] 차단 해제 성공 (시도 {attempt + 1}/3)")
+                input_block_active = False
+                return
+            else:
+                print(f"  ⚠ [안전장치] 차단 해제 실패 (시도 {attempt + 1}/3)")
+        except Exception as e:
+            print(f"  ⚠ [안전장치] 예외 발생 (시도 {attempt + 1}/3): {e}")
+        
+        time.sleep(0.1)  # 0.1초 대기 후 재시도
+    
+    # 3회 실패 후에도 상태 업데이트
+    input_block_active = False
+    print("  ⚠ [안전장치] 3회 시도 완료")
+
+
+def block_user_input_safe(block=True):
+    """
+    사용자의 키보드와 마우스 입력을 안전하게 차단하거나 해제
+    차단 시 2초 후 자동으로 해제되는 안전장치 포함
     
     Args:
         block: True이면 입력 차단, False이면 차단 해제
@@ -46,17 +81,59 @@ def block_user_input(block=True):
     Returns:
         bool: 성공 여부
     """
+    global input_block_active, safety_timer
+    
     try:
-        result = windll.user32.BlockInput(block)
-        if result:
-            if block:
+        if block:
+            # 입력 차단 시작
+            result = windll.user32.BlockInput(True)
+            if result:
                 print("  → 사용자 입력 차단 (붙여넣기 중)")
+                input_block_active = True
+                
+                # 2초 후 자동 해제 타이머 시작
+                safety_timer = threading.Timer(2.0, emergency_unblock_input)
+                safety_timer.daemon = True
+                safety_timer.start()
+                print("  → [안전장치] 2초 타이머 가동")
+                
+                return True
             else:
-                print("  → 사용자 입력 차단 해제")
-        return bool(result)
+                print("  ⚠ 입력 차단 실패")
+                return False
+        else:
+            # 입력 차단 해제
+            # 안전 타이머 취소
+            if safety_timer and safety_timer.is_alive():
+                safety_timer.cancel()
+                print("  → [안전장치] 타이머 취소")
+            
+            # 3회 연속 해제 시도
+            for attempt in range(3):
+                result = windll.user32.BlockInput(False)
+                if result:
+                    print(f"  → 사용자 입력 차단 해제 (시도 {attempt + 1}/3)")
+                    input_block_active = False
+                    return True
+                else:
+                    print(f"  ⚠ 차단 해제 실패 (시도 {attempt + 1}/3)")
+                    time.sleep(0.1)
+            
+            # 3회 실패해도 상태 업데이트
+            input_block_active = False
+            return False
+            
     except Exception as e:
-        print(f"  ⚠ 입력 차단 실패: {e}")
+        print(f"  ⚠ 입력 차단/해제 오류: {e}")
+        input_block_active = False
         return False
+
+
+def block_user_input(block=True):
+    """
+    사용자의 키보드와 마우스 입력을 차단하거나 해제 (하위 호환성 유지)
+    """
+    return block_user_input_safe(block)
 
 
 def get_idle_duration():
@@ -377,6 +454,8 @@ def send_text_to_cursor(text, cursor_window):
     
     전체 실행 시간이 너무 길면 타임아웃으로 종료하여 모니터링 루프가 멈추지 않도록 함
     """
+    global input_block_active, safety_timer
+    
     start_time = time.time()
     timeout_seconds = 30.0  # 최대 30초 제한
     
@@ -451,13 +530,53 @@ def send_text_to_cursor(text, cursor_window):
         
         finally:
             # ★ 사용자 입력 차단 해제 (반드시 실행)
+            # 3회 연속 검사를 통한 확실한 복구
             if input_blocked:
-                block_user_input(False)
+                print("  → 입력 차단 해제 시작...")
+                
+                # 안전 타이머 취소
+                if safety_timer and safety_timer.is_alive():
+                    safety_timer.cancel()
+                    print("  → [안전장치] 타이머 취소됨")
+                
+                # 3회 연속 차단 해제 및 확인
+                for verify_attempt in range(3):
+                    try:
+                        # 차단 해제 시도
+                        result = windll.user32.BlockInput(False)
+                        
+                        # 0.05초 대기 후 상태 확인을 위해 다시 해제 시도
+                        time.sleep(0.05)
+                        verify_result = windll.user32.BlockInput(False)
+                        
+                        if result and verify_result:
+                            print(f"  ✓ 차단 해제 확인 완료 (검증 {verify_attempt + 1}/3)")
+                        else:
+                            print(f"  ⚠ 차단 해제 미확인 - 재시도 (검증 {verify_attempt + 1}/3)")
+                    except Exception as e:
+                        print(f"  ⚠ 차단 해제 오류 (검증 {verify_attempt + 1}/3): {e}")
+                
+                # 전역 상태 업데이트
+                input_block_active = False
+                print("  ✓ 입력 차단 해제 완료 (3회 검증 완료)")
             
     except Exception as e:
         print(f"✗ 오류 발생: {e}")
         import traceback
         traceback.print_exc()
+        
+        # ★ 예외 발생 시에도 입력 차단 해제 보장
+        print("  → [긴급] 예외 발생으로 인한 입력 차단 해제...")
+        for emergency_attempt in range(3):
+            try:
+                windll.user32.BlockInput(False)
+                time.sleep(0.05)
+                print(f"  ✓ 긴급 차단 해제 시도 {emergency_attempt + 1}/3")
+            except:
+                pass
+        
+        input_block_active = False
+        
         return False
 
 
@@ -471,6 +590,8 @@ def monitor_files_and_send(status_file, roll_file, cursor_window, check_interval
         cursor_window: 입력할 Cursor 윈도우 객체
         check_interval: 파일 확인 간격(초)
     """
+    global input_block_active, safety_timer
+    
     print(f"\n" + "="*80)
     print(f"파일 모니터링 시작")
     print(f"="*80)
@@ -548,11 +669,41 @@ def monitor_files_and_send(status_file, roll_file, cursor_window, check_interval
         print("\n\n" + "="*80)
         print("모니터링 중지됨 (사용자 요청)")
         print("="*80)
+        
+        # ★ 프로그램 종료 시 입력 차단 해제 보장
+        print("  → 입력 차단 상태 확인 및 해제...")
+        for final_attempt in range(3):
+            try:
+                windll.user32.BlockInput(False)
+                time.sleep(0.05)
+                print(f"  ✓ 종료 시 차단 해제 {final_attempt + 1}/3")
+            except:
+                pass
+        
+        input_block_active = False
+        if safety_timer and safety_timer.is_alive():
+            safety_timer.cancel()
+        
+        print("  ✓ 안전하게 종료되었습니다.")
         return True
     except Exception as e:
         print(f"\n✗ 모니터링 오류: {e}")
         import traceback
         traceback.print_exc()
+        
+        # ★ 예외 발생 시 입력 차단 해제 보장
+        print("  → [긴급] 예외로 인한 입력 차단 해제...")
+        for emergency_attempt in range(3):
+            try:
+                windll.user32.BlockInput(False)
+                time.sleep(0.05)
+            except:
+                pass
+        
+        input_block_active = False
+        if safety_timer and safety_timer.is_alive():
+            safety_timer.cancel()
+        
         return False
 
 
