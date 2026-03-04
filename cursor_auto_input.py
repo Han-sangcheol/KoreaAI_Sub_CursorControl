@@ -386,18 +386,9 @@ def send_text_to_cursor(text, cursor_window):
         # ★ 유휴 상태 확인 즉시 초고속 붙여넣기 시작
         print("  → ⚡ 초고속 붙여넣기 시작!")
         
-        # Cursor 윈도우를 활성화
-        print("  → Cursor 윈도우 활성화...")
-        try:
-            cursor_window.set_focus()
-            time.sleep(0.5)
-            print("  → 윈도우 활성화 완료")
-        except Exception as e:
-            print(f"  ⚠ 윈도우 활성화 실패: {e}")
-        
-        # 입력창이 이미 열려있다고 가정하고 바로 붙여넣기 시도
-        # (Ctrl+L이나 Ctrl+Alt+B는 토글이므로 사용하지 않음)
-        print("  → 입력창에 직접 붙여넣기 시도...")
+        # set_focus()는 블로킹될 수 있으므로 제거
+        # 사용자가 이미 Cursor 윈도우를 보고 있다고 가정하고 바로 붙여넣기
+        print("  → 활성 윈도우에 직접 붙여넣기...")
         
         # 타임아웃 체크
         if time.time() - start_time > timeout_seconds:
