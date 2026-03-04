@@ -36,6 +36,29 @@ class LASTINPUTINFO(Structure):
     ]
 
 
+def block_user_input(block=True):
+    """
+    사용자의 키보드와 마우스 입력을 차단하거나 해제
+    
+    Args:
+        block: True이면 입력 차단, False이면 차단 해제
+    
+    Returns:
+        bool: 성공 여부
+    """
+    try:
+        result = windll.user32.BlockInput(block)
+        if result:
+            if block:
+                print("  → 사용자 입력 차단 (붙여넣기 중)")
+            else:
+                print("  → 사용자 입력 차단 해제")
+        return bool(result)
+    except Exception as e:
+        print(f"  ⚠ 입력 차단 실패: {e}")
+        return False
+
+
 def get_idle_duration():
     """
     사용자가 마지막으로 키보드나 마우스를 사용한 이후 경과 시간(초) 반환
@@ -395,32 +418,41 @@ def send_text_to_cursor(text, cursor_window):
             print(f"  ⚠ 전체 타임아웃 ({timeout_seconds}초 초과)")
             return False
         
-        # 전체 선택 + 붙여넣기 + Enter를 연속으로 실행
-        print("  → 붙여넣기 실행...")
-        try:
-            send_keys("^a")  # Ctrl+A (전체 선택)
-            time.sleep(0.1)
-        except Exception as e:
-            print(f"  ⚠ 전체 선택 오류: {e}")
+        # ★ 사용자 입력 차단 시작 (붙여넣기 중 방해 방지)
+        input_blocked = block_user_input(True)
         
         try:
-            send_keys("^v")  # Ctrl+V (붙여넣기)
-            time.sleep(0.8)  # 붙여넣기 완료 대기 증가
-            print("  → 붙여넣기 명령 전송 완료")
-        except Exception as e:
-            print(f"  ⚠ 붙여넣기 오류: {e}")
-            # 붙여넣기 실패해도 계속 진행
+            # 전체 선택 + 붙여넣기 + Enter를 연속으로 실행
+            print("  → 붙여넣기 실행...")
+            try:
+                send_keys("^a")  # Ctrl+A (전체 선택)
+                time.sleep(0.1)
+            except Exception as e:
+                print(f"  ⚠ 전체 선택 오류: {e}")
+            
+            try:
+                send_keys("^v")  # Ctrl+V (붙여넣기)
+                time.sleep(0.8)  # 붙여넣기 완료 대기 증가
+                print("  → 붙여넣기 명령 전송 완료")
+            except Exception as e:
+                print(f"  ⚠ 붙여넣기 오류: {e}")
+                # 붙여넣기 실패해도 계속 진행
+            
+            # Enter 키 전송
+            print("  → Enter 전송...")
+            try:
+                send_keys("{ENTER}")
+                time.sleep(0.2)
+            except Exception as e:
+                print(f"  ⚠ Enter 전송 오류: {e}")
+            
+            print("  → ✓ 완료!")
+            return True
         
-        # Enter 키 전송
-        print("  → Enter 전송...")
-        try:
-            send_keys("{ENTER}")
-            time.sleep(0.2)
-        except Exception as e:
-            print(f"  ⚠ Enter 전송 오류: {e}")
-        
-        print("  → ✓ 완료!")
-        return True
+        finally:
+            # ★ 사용자 입력 차단 해제 (반드시 실행)
+            if input_blocked:
+                block_user_input(False)
             
     except Exception as e:
         print(f"✗ 오류 발생: {e}")
