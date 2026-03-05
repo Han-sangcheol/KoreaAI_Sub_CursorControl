@@ -622,6 +622,23 @@ def send_text_to_cursor(text, cursor_window):
             print(f"  ⚠ 전체 타임아웃 ({timeout_seconds}초 초과)")
             return False
         
+        # ★ 프롬프트 창 영역 클릭 (포커스 확보)
+        print("  → 프롬프트 입력창 클릭...")
+        try:
+            rect = win32gui.GetWindowRect(hwnd)
+            # 윈도우 하단 중앙 부근 클릭 (프롬프트 입력창이 보통 하단에 위치)
+            x = rect[0] + (rect[2] - rect[0]) // 2  # 중앙
+            y = rect[3] - 100  # 하단에서 100px 위
+            
+            windll.user32.SetCursorPos(x, y)
+            time.sleep(0.2)
+            windll.user32.mouse_event(2, 0, 0, 0, 0)  # Left down
+            windll.user32.mouse_event(4, 0, 0, 0, 0)  # Left up
+            time.sleep(0.5)  # 클릭 후 포커스 안정화
+            print(f"  → 프롬프트 창 클릭 완료 (위치: {x}, {y})")
+        except Exception as e:
+            print(f"  ⚠ 프롬프트 클릭 오류: {e}")
+        
         # ★ 사용자 입력 차단 시작 (붙여넣기 중 방해 방지)
         input_blocked = block_user_input(True)
         
