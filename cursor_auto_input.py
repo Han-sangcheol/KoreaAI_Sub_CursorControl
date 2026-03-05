@@ -583,7 +583,7 @@ def send_text_to_cursor(text, cursor_window):
                 send_keys("^a")  # Ctrl+A
                 time.sleep(0.15)
                 send_keys("^v")  # Ctrl+V
-                time.sleep(1.0)  # 붙여넣기 완료 대기
+                time.sleep(2.0)  # 붙여넣기 완료 대기 (대용량 텍스트 고려)
                 send_keys("{ENTER}")
                 time.sleep(0.3)
                 print("  → [1차 시도] 붙여넣기 완료")
@@ -603,7 +603,7 @@ def send_text_to_cursor(text, cursor_window):
                 send_keys("^a")  # Ctrl+A
                 time.sleep(0.15)
                 send_keys("^v")  # Ctrl+V
-                time.sleep(1.0)  # 붙여넣기 완료 대기
+                time.sleep(2.0)  # 붙여넣기 완료 대기 (대용량 텍스트 고려)
                 send_keys("{ENTER}")
                 time.sleep(0.3)
                 print("  → [2차 시도] 붙여넣기 완료")
