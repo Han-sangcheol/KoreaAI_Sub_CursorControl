@@ -7,7 +7,7 @@ Cursor 프롬프트 입력창 자동화 프로그램
 - 여러 개의 Cursor 인스턴스가 실행 중일 때 사용자가 선택할 수 있도록 지원
 - 사용자 입력 감지: 키보드/마우스 입력이 3초간 없을 때까지 대기 후 실행
 - 2초 안전 타이머: 입력 차단이 2초 이상 지속되지 않도록 자동 해제
-- 주의: Cursor IDE의 프롬프트 입력창은 사용자가 미리 열어두어야 함
+- Ctrl+L 2회 전략: 프롬프트 창 열림/닫힘 상태와 무관하게 확실하게 붙여넣기
 """
 
 import pywinauto
@@ -513,7 +513,10 @@ def send_text_to_cursor(text, cursor_window):
     사용자가 키보드/마우스를 사용 중이면 3.0초간 유휴 상태가 될 때까지 대기
     유휴 대기 중에 미리 클립보드에 복사하여 대기 완료 후 초고속으로 붙여넣기 실행
     
-    주의: 프롬프트 입력창은 사용자가 이미 열어둔 상태여야 함 (자동으로 열지 않음)
+    Ctrl+L을 2회 실행하여 프롬프트 창 상태와 무관하게 확실하게 붙여넣기:
+    - 1차: Ctrl+L + 붙여넣기 (열려있으면 닫힘 → 실패, 닫혀있으면 열림 → 성공)
+    - 2차: Ctrl+L + 붙여넣기 (1차의 반대 상태이므로 1차 실패했으면 성공)
+    - 결과: 최소 1회는 반드시 성공
     
     전체 실행 시간이 너무 길면 타임아웃으로 종료하여 모니터링 루프가 멈추지 않도록 함
     """
@@ -566,40 +569,48 @@ def send_text_to_cursor(text, cursor_window):
             print(f"  ⚠ 전체 타임아웃 ({timeout_seconds}초 초과)")
             return False
         
-        # 프롬프트 창은 사용자가 이미 열어둔 상태라고 가정
-        # 별도의 토글 키(Ctrl+L, Ctrl+Alt+B 등) 사용하지 않음
-        print("  → 프롬프트 입력창이 열려있다고 가정하고 진행...")
-        time.sleep(0.3)  # 윈도우 활성화 후 안정화 대기
-        
         # ★ 사용자 입력 차단 시작 (붙여넣기 중 방해 방지)
         input_blocked = block_user_input(True)
         
         try:
-            # 전체 선택 + 붙여넣기 + Enter를 연속으로 실행
-            print("  → 붙여넣기 실행...")
+            # ★★★ Ctrl+L 2회 전략: 어떤 상태든 중간에 한 번은 열린 상태가 됨
+            print("  → [1차 시도] Ctrl+L로 프롬프트 창 토글...")
             try:
-                send_keys("^a")  # Ctrl+A (전체 선택)
-                time.sleep(0.15)
-            except Exception as e:
-                print(f"  ⚠ 전체 선택 오류: {e}")
-            
-            try:
-                send_keys("^v")  # Ctrl+V (붙여넣기)
-                time.sleep(1.0)  # 붙여넣기 완료 대기 (대용량 텍스트 고려)
-                print("  → 붙여넣기 명령 전송 완료")
-            except Exception as e:
-                print(f"  ⚠ 붙여넣기 오류: {e}")
-                # 붙여넣기 실패해도 계속 진행
-            
-            # Enter 키 전송
-            print("  → Enter 전송...")
-            try:
-                send_keys("{ENTER}")
+                send_keys("^l")  # Ctrl+L (첫 번째)
                 time.sleep(0.3)
+                
+                # 첫 번째 붙여넣기 시도
+                send_keys("^a")  # Ctrl+A
+                time.sleep(0.1)
+                send_keys("^v")  # Ctrl+V
+                time.sleep(0.8)
+                send_keys("{ENTER}")
+                time.sleep(0.2)
+                print("  → [1차 시도] 붙여넣기 완료")
             except Exception as e:
-                print(f"  ⚠ Enter 전송 오류: {e}")
+                print(f"  ⚠ [1차 시도] 오류: {e}")
             
-            print("  → ✓ 완료!")
+            # 짧은 대기
+            time.sleep(0.2)
+            
+            # ★★★ 두 번째 시도: 상태가 반대로 되었으므로 다시 시도
+            print("  → [2차 시도] Ctrl+L로 프롬프트 창 토글...")
+            try:
+                send_keys("^l")  # Ctrl+L (두 번째)
+                time.sleep(0.3)
+                
+                # 두 번째 붙여넣기 시도
+                send_keys("^a")  # Ctrl+A
+                time.sleep(0.1)
+                send_keys("^v")  # Ctrl+V
+                time.sleep(0.8)
+                send_keys("{ENTER}")
+                time.sleep(0.2)
+                print("  → [2차 시도] 붙여넣기 완료")
+            except Exception as e:
+                print(f"  ⚠ [2차 시도] 오류: {e}")
+            
+            print("  → ✓ 2회 시도 완료! (최소 1회는 성공)")
             return True
         
         finally:
