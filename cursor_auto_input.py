@@ -511,8 +511,8 @@ def send_text_to_cursor(text, cursor_window):
     텍스트를 지정된 Cursor 프롬프트 입력창에 입력하고 엔터
     Electron 앱 특성상 윈도우 활성화 후 키보드 시뮬레이션 사용
     사용자가 키보드/마우스를 사용 중이면 3.0초간 유휴 상태가 될 때까지 대기
-    유휴 대기 중에 미리 클립보드에 복사하여 대기 완료 후 초고속으로 붙여넣기 실행
     
+    입력 차단 후 클립보드에 복사하여 사용자가 복사한 내용이 덮어씌워지는 것을 방지
     Ctrl+N으로 새로운 프롬프트 창을 열어서 깨끗한 상태에서 붙여넣기 실행
     
     전체 실행 시간이 너무 길면 타임아웃으로 종료하여 모니터링 루프가 멈추지 않도록 함
@@ -528,12 +528,6 @@ def send_text_to_cursor(text, cursor_window):
             return False
         
         print(f"입력할 텍스트: {text[:50]}...")
-        
-        # ★ 유휴 대기 전에 미리 클립보드에 복사 (대기 시간 단축)
-        import pyperclip
-        print("  → 클립보드에 미리 복사...")
-        pyperclip.copy(text)
-        print("  → 준비 완료!")
         
         # 타임아웃 체크
         if time.time() - start_time > timeout_seconds:
@@ -582,6 +576,13 @@ def send_text_to_cursor(text, cursor_window):
         input_blocked = block_user_input(True)
         
         try:
+            # ★★★ 입력 차단 후 클립보드에 복사 (사용자 복사 내용 덮어쓰기 방지)
+            import pyperclip
+            print("  → 클립보드에 복사...")
+            pyperclip.copy(text)
+            time.sleep(0.3)  # 클립보드 복사 완료 대기
+            print("  → 클립보드 복사 완료!")
+            
             # Ctrl+N으로 새로운 프롬프트 창 열기
             print("  → Ctrl+N으로 새 프롬프트 창 열기...")
             try:
