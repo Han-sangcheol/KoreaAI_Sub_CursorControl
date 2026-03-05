@@ -551,15 +551,27 @@ def send_text_to_cursor(text, cursor_window):
         # ★ 유휴 상태 확인 즉시 초고속 붙여넣기 시작
         print("  → ⚡ 초고속 붙여넣기 시작!")
         
-        # Cursor 윈도우를 강제로 전면으로 가져오기
-        print("  → Cursor 윈도우 활성화...")
+        # Cursor 윈도우를 강제로 전면으로 가져오기 (여러 번 시도)
         hwnd = cursor_window.handle
         
-        success = force_window_to_foreground(hwnd)
-        if success:
-            print("  → ✓ Cursor 윈도우 활성화 완료")
-        else:
-            print("  → ⚠ 윈도우 활성화 실패했지만 계속 진행...")
+        print("  → Cursor 윈도우 활성화 (3회 시도)...")
+        activation_success = False
+        for attempt in range(3):
+            success = force_window_to_foreground(hwnd)
+            if success:
+                print(f"  → ✓ Cursor 윈도우 활성화 완료 (시도 {attempt + 1}/3)")
+                activation_success = True
+                break
+            else:
+                print(f"  → ⚠ 활성화 실패, 재시도... (시도 {attempt + 1}/3)")
+                time.sleep(0.5)  # 재시도 전 대기
+        
+        if not activation_success:
+            print("  → ⚠ 3회 시도 후에도 활성화 실패했지만 계속 진행...")
+        
+        # 윈도우 활성화 후 충분한 안정화 시간
+        print("  → 윈도우 안정화 대기...")
+        time.sleep(1.0)  # 확실한 안정화
         
         # 타임아웃 체크
         if time.time() - start_time > timeout_seconds:
@@ -574,7 +586,7 @@ def send_text_to_cursor(text, cursor_window):
             print("  → Ctrl+N으로 새 프롬프트 창 열기...")
             try:
                 send_keys("^n")  # Ctrl+N (새 프롬프트)
-                time.sleep(1.5)  # 새 프롬프트 창이 열릴 때까지 대기
+                time.sleep(2.0)  # 새 프롬프트 창이 완전히 열릴 때까지 충분한 대기
                 print("  → 새 프롬프트 창 열림")
             except Exception as e:
                 print(f"  ⚠ 새 프롬프트 열기 오류: {e}")
@@ -583,7 +595,7 @@ def send_text_to_cursor(text, cursor_window):
             print("  → 붙여넣기 실행...")
             try:
                 send_keys("^v")  # Ctrl+V (붙여넣기)
-                time.sleep(2.5)  # 충분한 붙여넣기 대기 시간
+                time.sleep(3.0)  # 대용량 텍스트를 위한 충분한 대기
                 print("  → 붙여넣기 명령 전송 완료")
             except Exception as e:
                 print(f"  ⚠ 붙여넣기 오류: {e}")
