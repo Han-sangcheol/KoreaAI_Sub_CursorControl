@@ -7,7 +7,7 @@ Cursor 프롬프트 입력창 자동화 프로그램
 - 여러 개의 Cursor 인스턴스가 실행 중일 때 사용자가 선택할 수 있도록 지원
 - 사용자 입력 감지: 키보드/마우스 입력이 3초간 없을 때까지 대기 후 실행
 - 2초 안전 타이머: 입력 차단이 2초 이상 지속되지 않도록 자동 해제
-- 중요: Cursor IDE의 프롬프트 입력창을 사용자가 미리 열어두어야 함
+- Ctrl+N으로 새 프롬프트 창을 열어서 확실하게 붙여넣기
 """
 
 import pywinauto
@@ -513,7 +513,7 @@ def send_text_to_cursor(text, cursor_window):
     사용자가 키보드/마우스를 사용 중이면 3.0초간 유휴 상태가 될 때까지 대기
     유휴 대기 중에 미리 클립보드에 복사하여 대기 완료 후 초고속으로 붙여넣기 실행
     
-    중요: 프롬프트 입력창을 사용자가 미리 열어두어야 함 (자동으로 열지 않음)
+    Ctrl+N으로 새로운 프롬프트 창을 열어서 깨끗한 상태에서 붙여넣기 실행
     
     전체 실행 시간이 너무 길면 타임아웃으로 종료하여 모니터링 루프가 멈추지 않도록 함
     """
@@ -570,17 +570,17 @@ def send_text_to_cursor(text, cursor_window):
         input_blocked = block_user_input(True)
         
         try:
-            # 사용자가 프롬프트 입력창을 미리 열어둔 상태라고 가정
-            # Ctrl+L 없이 바로 붙여넣기 시도
-            print("  → 붙여넣기 실행 (프롬프트 창이 열려있다고 가정)...")
-            
+            # Ctrl+N으로 새로운 프롬프트 창 열기
+            print("  → Ctrl+N으로 새 프롬프트 창 열기...")
             try:
-                send_keys("^a")  # Ctrl+A (전체 선택)
-                time.sleep(0.2)
-                print("  → 전체 선택 완료")
+                send_keys("^n")  # Ctrl+N (새 프롬프트)
+                time.sleep(1.5)  # 새 프롬프트 창이 열릴 때까지 대기
+                print("  → 새 프롬프트 창 열림")
             except Exception as e:
-                print(f"  ⚠ 전체 선택 오류: {e}")
+                print(f"  ⚠ 새 프롬프트 열기 오류: {e}")
             
+            # 붙여넣기 실행
+            print("  → 붙여넣기 실행...")
             try:
                 send_keys("^v")  # Ctrl+V (붙여넣기)
                 time.sleep(2.5)  # 충분한 붙여넣기 대기 시간
