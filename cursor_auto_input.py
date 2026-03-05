@@ -156,7 +156,7 @@ def get_idle_duration():
 
 def force_window_to_foreground(hwnd):
     """
-    윈도우를 강제로 전면으로 가져오기 (Windows 보안 정책 우회)
+    윈도우를 강제로 전면으로 가져오기 (여러 방법 조합)
     
     Args:
         hwnd: 윈도우 핸들
@@ -175,38 +175,85 @@ def force_window_to_foreground(hwnd):
         # 3. 최소화 상태면 복원
         if win32gui.IsIconic(hwnd):
             win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-            time.sleep(0.1)
+            time.sleep(0.2)
         
         # 4. 윈도우를 보이게 설정
         win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+        time.sleep(0.1)
+        
+        # 5. Alt 키를 눌러서 입력 포커스 획득 (Windows 보안 정책 우회)
+        windll.user32.keybd_event(0x12, 0, 0, 0)  # Alt Down
         time.sleep(0.05)
         
-        # 5. 현재 프로세스와 전면 윈도우의 스레드를 연결 (Windows 보안 우회)
+        # 6. 현재 프로세스와 전면 윈도우의 스레드를 연결
         if current_foreground != 0:
-            current_thread = win32api.GetCurrentThreadId()
-            foreground_thread = win32process.GetWindowThreadProcessId(current_foreground)[0]
-            
-            if current_thread != foreground_thread:
-                # 스레드 연결
-                windll.user32.AttachThreadInput(current_thread, foreground_thread, True)
+            try:
+                current_thread = win32api.GetCurrentThreadId()
+                foreground_thread = win32process.GetWindowThreadProcessId(current_foreground)[0]
                 
-                # 윈도우를 전면으로
-                win32gui.SetForegroundWindow(hwnd)
-                win32gui.BringWindowToTop(hwnd)
-                win32gui.SetActiveWindow(hwnd)
-                
-                # 스레드 분리
-                windll.user32.AttachThreadInput(current_thread, foreground_thread, False)
-            else:
-                win32gui.SetForegroundWindow(hwnd)
-        else:
+                if current_thread != foreground_thread:
+                    # 스레드 연결
+                    windll.user32.AttachThreadInput(current_thread, foreground_thread, True)
+                    time.sleep(0.05)
+            except:
+                pass
+        
+        # 7. 여러 방법으로 윈도우 활성화 시도
+        try:
             win32gui.SetForegroundWindow(hwnd)
+        except:
+            pass
         
-        time.sleep(0.2)
+        try:
+            win32gui.BringWindowToTop(hwnd)
+        except:
+            pass
         
-        # 6. 확인
+        try:
+            win32gui.SetActiveWindow(hwnd)
+        except:
+            pass
+        
+        # 8. Alt 키 해제
+        windll.user32.keybd_event(0x12, 0, 2, 0)  # Alt Up
+        time.sleep(0.05)
+        
+        # 9. 스레드 분리
+        if current_foreground != 0:
+            try:
+                current_thread = win32api.GetCurrentThreadId()
+                foreground_thread = win32process.GetWindowThreadProcessId(current_foreground)[0]
+                if current_thread != foreground_thread:
+                    windll.user32.AttachThreadInput(current_thread, foreground_thread, False)
+            except:
+                pass
+        
+        time.sleep(0.3)
+        
+        # 10. 확인
         new_foreground = win32gui.GetForegroundWindow()
-        return new_foreground == hwnd
+        success = (new_foreground == hwnd)
+        
+        if not success:
+            # 11. 최후의 수단: 윈도우 클릭
+            try:
+                rect = win32gui.GetWindowRect(hwnd)
+                x = rect[0] + 100
+                y = rect[1] + 50
+                
+                # 마우스 이동 및 클릭
+                windll.user32.SetCursorPos(x, y)
+                time.sleep(0.1)
+                windll.user32.mouse_event(2, 0, 0, 0, 0)  # Left down
+                windll.user32.mouse_event(4, 0, 0, 0, 0)  # Left up
+                time.sleep(0.2)
+                
+                new_foreground = win32gui.GetForegroundWindow()
+                success = (new_foreground == hwnd)
+            except:
+                pass
+        
+        return success
         
     except Exception as e:
         print(f"  ⚠ 윈도우 활성화 오류: {e}")
@@ -558,10 +605,13 @@ def send_text_to_cursor(text, cursor_window):
                 break
             else:
                 print(f"  → ⚠ 활성화 실패, 재시도... (시도 {attempt + 1}/3)")
-                time.sleep(0.5)  # 재시도 전 대기
+                time.sleep(1.0)  # 재시도 전 충분한 대기 시간
         
         if not activation_success:
-            print("  → ⚠ 3회 시도 후에도 활성화 실패했지만 계속 진행...")
+            print("  → ⚠ 3회 시도 후에도 활성화 실패, 마지막 시도 진행...")
+            # 마지막 한 번 더 시도
+            force_window_to_foreground(hwnd)
+            time.sleep(0.5)
         
         # 윈도우 활성화 후 충분한 안정화 시간
         print("  → 윈도우 안정화 대기...")
