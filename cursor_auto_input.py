@@ -577,35 +577,35 @@ def send_text_to_cursor(text, cursor_window):
             print("  → [1차 시도] Ctrl+L로 프롬프트 창 토글...")
             try:
                 send_keys("^l")  # Ctrl+L (첫 번째)
-                time.sleep(0.3)
+                time.sleep(1.2)  # 프롬프트 창 열림 대기 (충분한 시간 확보)
                 
                 # 첫 번째 붙여넣기 시도
                 send_keys("^a")  # Ctrl+A
-                time.sleep(0.1)
+                time.sleep(0.15)
                 send_keys("^v")  # Ctrl+V
-                time.sleep(0.8)
+                time.sleep(1.0)  # 붙여넣기 완료 대기
                 send_keys("{ENTER}")
-                time.sleep(0.2)
+                time.sleep(0.3)
                 print("  → [1차 시도] 붙여넣기 완료")
             except Exception as e:
                 print(f"  ⚠ [1차 시도] 오류: {e}")
             
-            # 짧은 대기
-            time.sleep(0.2)
+            # 시도 간 대기
+            time.sleep(0.3)
             
             # ★★★ 두 번째 시도: 상태가 반대로 되었으므로 다시 시도
             print("  → [2차 시도] Ctrl+L로 프롬프트 창 토글...")
             try:
                 send_keys("^l")  # Ctrl+L (두 번째)
-                time.sleep(0.3)
+                time.sleep(1.2)  # 프롬프트 창 열림 대기 (충분한 시간 확보)
                 
                 # 두 번째 붙여넣기 시도
                 send_keys("^a")  # Ctrl+A
-                time.sleep(0.1)
+                time.sleep(0.15)
                 send_keys("^v")  # Ctrl+V
-                time.sleep(0.8)
+                time.sleep(1.0)  # 붙여넣기 완료 대기
                 send_keys("{ENTER}")
-                time.sleep(0.2)
+                time.sleep(0.3)
                 print("  → [2차 시도] 붙여넣기 완료")
             except Exception as e:
                 print(f"  ⚠ [2차 시도] 오류: {e}")
