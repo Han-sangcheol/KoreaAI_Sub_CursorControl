@@ -726,10 +726,7 @@ def monitor_files_and_send(status_file, roll_file, cursor_window, check_interval
                             
                             print(f"\n" + "="*80)
                             print(f"✓ 작업 완료! 파일 내용이 Cursor에 전송되었습니다.")
-                            print(f"="*80)
-                            print(f"📊 통계:")
-                            print(f"  - 총 붙여넣기 성공 횟수: {paste_count}회")
-                            print(f"  - 마지막 붙여넣기 시간: {last_paste_time}")
+                            print(f"  [{paste_count}회째 붙여넣기 성공] {last_paste_time}")
                             print(f"="*80 + "\n")
                         else:
                             print(f"\n" + "="*80)
@@ -752,13 +749,7 @@ def monitor_files_and_send(status_file, roll_file, cursor_window, check_interval
             # 모니터링 상태 표시 (10번마다)
             check_count += 1
             if check_count % 10 == 0:
-                status_msg = f"[모니터링 중...] 확인: {check_count}회"
-                if paste_count > 0:
-                    status_msg += f" | 붙여넣기 성공: {paste_count}회"
-                if last_paste_time:
-                    status_msg += f" | 마지막: {last_paste_time}"
-                status_msg += f" ({time.strftime('%H:%M:%S')})"
-                print(status_msg, end='\r')
+                print(f"[모니터링 중...] 확인 횟수: {check_count}회 ({time.strftime('%H:%M:%S')})", end='\r')
             
             # 대기
             time.sleep(check_interval)
