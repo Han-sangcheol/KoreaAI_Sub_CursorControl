@@ -6,6 +6,8 @@ Cursor 프롬프트 입력창 자동화 프로그램
 - 입력 후 자동으로 엔터 키를 눌러 전송
 - 여러 개의 Cursor 인스턴스가 실행 중일 때 사용자가 선택할 수 있도록 지원
 - 사용자 입력 감지: 키보드/마우스 입력이 3초간 없을 때까지 대기 후 실행
+- 2초 안전 타이머: 입력 차단이 2초 이상 지속되지 않도록 자동 해제
+- 주의: Cursor IDE의 프롬프트 입력창은 사용자가 미리 열어두어야 함
 """
 
 import pywinauto
@@ -510,7 +512,8 @@ def send_text_to_cursor(text, cursor_window):
     Electron 앱 특성상 윈도우 활성화 후 키보드 시뮬레이션 사용
     사용자가 키보드/마우스를 사용 중이면 3.0초간 유휴 상태가 될 때까지 대기
     유휴 대기 중에 미리 클립보드에 복사하여 대기 완료 후 초고속으로 붙여넣기 실행
-    프롬프트 창이 닫혀있을 경우에만 Ctrl+Alt+B로 입력창 열기
+    
+    주의: 프롬프트 입력창은 사용자가 이미 열어둔 상태여야 함 (자동으로 열지 않음)
     
     전체 실행 시간이 너무 길면 타임아웃으로 종료하여 모니터링 루프가 멈추지 않도록 함
     """
@@ -563,13 +566,10 @@ def send_text_to_cursor(text, cursor_window):
             print(f"  ⚠ 전체 타임아웃 ({timeout_seconds}초 초과)")
             return False
         
-        # Ctrl+L로 프롬프트 입력창 포커스
-        try:
-            print("  → 프롬프트 입력창 포커스...")
-            send_keys("^l")  # Ctrl+L
-            time.sleep(0.5)  # 입력창 포커스 대기
-        except Exception as e:
-            print(f"  ⚠ 프롬프트 포커스 오류: {e}")
+        # 프롬프트 창은 사용자가 이미 열어둔 상태라고 가정
+        # 별도의 토글 키(Ctrl+L, Ctrl+Alt+B 등) 사용하지 않음
+        print("  → 프롬프트 입력창이 열려있다고 가정하고 진행...")
+        time.sleep(0.3)  # 윈도우 활성화 후 안정화 대기
         
         # ★ 사용자 입력 차단 시작 (붙여넣기 중 방해 방지)
         input_blocked = block_user_input(True)
