@@ -730,14 +730,15 @@ def send_text_to_cursor(text, cursor_window):
         return False
 
 
-def monitor_files_and_send(status_file, roll_file, cursor_window, check_interval=1.0):
+def monitor_files_and_send(status_file, roll_file, cursor_windows_list, check_interval=1.0):
     """
     status.json과 roll.txt 파일을 모니터링하다가 변경 시 내용을 합쳐서 Cursor에 자동 입력
+    여러 Cursor 윈도우를 순환하면서 붙여넣기
     
     Args:
         status_file: 모니터링할 status.json 파일 경로
         roll_file: 모니터링할 roll.txt 파일 경로
-        cursor_window: 입력할 Cursor 윈도우 객체
+        cursor_windows_list: 입력할 Cursor 윈도우 객체 리스트
         check_interval: 파일 확인 간격(초)
     """
     global input_block_active, safety_timer
@@ -748,6 +749,7 @@ def monitor_files_and_send(status_file, roll_file, cursor_window, check_interval
     print(f"모니터링 대상 파일:")
     print(f"  - {status_file}")
     print(f"  - {roll_file}")
+    print(f"선택된 Cursor 윈도우: {len(cursor_windows_list)}개")
     print(f"확인 간격: {check_interval}초")
     print(f"종료하려면 Ctrl+C를 누르세요.")
     print(f"="*80 + "\n")
@@ -756,6 +758,7 @@ def monitor_files_and_send(status_file, roll_file, cursor_window, check_interval
     check_count = 0
     paste_count = 0  # 붙여넣기 성공 횟수
     last_paste_time = None  # 마지막 붙여넣기 시간
+    current_window_index = 0  # 현재 윈도우 인덱스 (순환용)
     
     try:
         while True:
@@ -783,6 +786,12 @@ def monitor_files_and_send(status_file, roll_file, cursor_window, check_interval
                 if combined_content:
                     print(f"파일 내용 읽기 완료 (총 {len(combined_content)} 자)")
                     
+                    # 현재 순서의 Cursor 윈도우 선택
+                    cursor_window = cursor_windows_list[current_window_index]
+                    window_info = f"[{current_window_index + 1}/{len(cursor_windows_list)}]"
+                    
+                    print(f"{window_info} 대상 윈도우: {cursor_window.window_text()}")
+                    
                     # Cursor에 내용 전송 (사용자 유휴 대기 포함)
                     try:
                         success = send_text_to_cursor(combined_content, cursor_window)
@@ -793,8 +802,11 @@ def monitor_files_and_send(status_file, roll_file, cursor_window, check_interval
                             
                             print(f"\n" + "="*80)
                             print(f"✓ 작업 완료! 파일 내용이 Cursor에 전송되었습니다.")
-                            print(f"  [{paste_count}회째 붙여넣기 성공] {last_paste_time}")
+                            print(f"  {window_info} [{paste_count}회째 붙여넣기 성공] {last_paste_time}")
                             print(f"="*80 + "\n")
+                            
+                            # 다음 윈도우로 순환
+                            current_window_index = (current_window_index + 1) % len(cursor_windows_list)
                         else:
                             print(f"\n" + "="*80)
                             print(f"✗ 전송 실패 (함수 반환 False)")
@@ -886,6 +898,33 @@ if __name__ == "__main__":
     if not os.path.exists(status_file) and not os.path.exists(roll_file):
         print("\n파일이 생성될 때까지 대기합니다...\n")
     
+    # 선택할 Cursor 윈도우 개수 입력
+    print("\n" + "=" * 50)
+    while True:
+        try:
+            num_windows = input("선택할 Cursor 윈도우 개수 (1-10, 0=종료): ").strip()
+            if not num_windows:
+                continue
+            
+            num_windows = int(num_windows)
+            
+            if num_windows == 0:
+                print("프로그램을 종료합니다.")
+                sys.exit(0)
+            
+            if 1 <= num_windows <= 10:
+                break
+            else:
+                print("⚠ 1부터 10 사이의 숫자를 입력하세요.")
+        except ValueError:
+            print("⚠ 올바른 숫자를 입력하세요.")
+        except KeyboardInterrupt:
+            print("\n\n프로그램을 종료합니다.")
+            sys.exit(0)
+    
+    print(f"\n선택할 윈도우 개수: {num_windows}개")
+    print("=" * 50)
+    
     print("\n1단계: Cursor 윈도우 선택")
     print("-" * 50)
     
@@ -896,18 +935,34 @@ if __name__ == "__main__":
         print("실행 중인 Cursor 윈도우를 찾을 수 없습니다.")
         sys.exit(1)
     
-    # 사용자가 윈도우 선택
-    cursor_window = select_cursor_window(cursor_windows)
-    
-    if not cursor_window:
-        print("Cursor 윈도우가 선택되지 않았습니다.")
+    if len(cursor_windows) < num_windows:
+        print(f"⚠ 실행 중인 Cursor 윈도우가 {len(cursor_windows)}개뿐입니다.")
+        print(f"  요청한 {num_windows}개를 선택할 수 없습니다.")
         sys.exit(1)
+    
+    # 여러 윈도우 선택
+    selected_windows = []
+    for i in range(num_windows):
+        print(f"\n[{i + 1}/{num_windows}] 번째 Cursor 윈도우 선택:")
+        cursor_window = select_cursor_window(cursor_windows)
+        
+        if not cursor_window:
+            print("Cursor 윈도우가 선택되지 않았습니다.")
+            sys.exit(1)
+        
+        selected_windows.append(cursor_window)
+        print(f"  → 선택됨: {cursor_window.window_text()}")
+    
+    print(f"\n✓ 총 {len(selected_windows)}개의 Cursor 윈도우 선택 완료")
+    print("\n선택된 윈도우 목록:")
+    for i, win in enumerate(selected_windows):
+        print(f"  {i + 1}. {win.window_text()}")
     
     print("\n2단계: 파일 모니터링 시작")
     print("-" * 50)
     
-    # 파일 모니터링 시작
-    success = monitor_files_and_send(status_file, roll_file, cursor_window)
+    # 파일 모니터링 시작 (여러 윈도우 전달)
+    success = monitor_files_and_send(status_file, roll_file, selected_windows)
     
     if success:
         print("\n✓ 프로그램이 정상적으로 종료되었습니다.")
