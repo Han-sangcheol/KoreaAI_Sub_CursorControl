@@ -576,6 +576,28 @@ def send_text_to_cursor(text, cursor_window):
         
         print(f"입력할 텍스트: {text[:50]}...")
         
+        # ★★★ 현재 상태 저장 (복원을 위해)
+        print("  → 현재 상태 저장 중...")
+        original_foreground_hwnd = None
+        original_mouse_pos = None
+        
+        try:
+            # 현재 전면 윈도우 저장
+            original_foreground_hwnd = win32gui.GetForegroundWindow()
+            if original_foreground_hwnd:
+                try:
+                    original_window_title = win32gui.GetWindowText(original_foreground_hwnd)
+                    print(f"  → 원래 활성 윈도우: {original_window_title[:50]}")
+                except:
+                    print(f"  → 원래 활성 윈도우 핸들: {original_foreground_hwnd}")
+            
+            # 현재 마우스 위치 저장
+            cursor_pos = win32api.GetCursorPos()
+            original_mouse_pos = (cursor_pos[0], cursor_pos[1])
+            print(f"  → 원래 마우스 위치: ({original_mouse_pos[0]}, {original_mouse_pos[1]})")
+        except Exception as e:
+            print(f"  ⚠ 상태 저장 오류: {e}")
+        
         # 타임아웃 체크
         if time.time() - start_time > timeout_seconds:
             print(f"  ⚠ 타임아웃 ({timeout_seconds}초 초과)")
@@ -709,6 +731,42 @@ def send_text_to_cursor(text, cursor_window):
                 # 전역 상태 업데이트
                 input_block_active = False
                 print("  ✓ 입력 차단 해제 완료 (3회 검증 완료)")
+            
+            # ★★★ 원래 상태로 복원
+            print("  → 원래 상태로 복원 중...")
+            
+            # 원래 윈도우로 복원
+            if original_foreground_hwnd and original_foreground_hwnd != 0:
+                try:
+                    print("  → 원래 윈도우 활성화...")
+                    
+                    # 간단한 방법으로 복원 시도
+                    try:
+                        win32gui.SetForegroundWindow(original_foreground_hwnd)
+                    except:
+                        # 실패 시 Alt 키 트릭 사용
+                        windll.user32.keybd_event(0x12, 0, 0, 0)  # Alt Down
+                        time.sleep(0.05)
+                        try:
+                            win32gui.SetForegroundWindow(original_foreground_hwnd)
+                        except:
+                            pass
+                        windll.user32.keybd_event(0x12, 0, 2, 0)  # Alt Up
+                    
+                    time.sleep(0.3)
+                    print("  → 원래 윈도우 복원 완료")
+                except Exception as e:
+                    print(f"  ⚠ 윈도우 복원 오류: {e}")
+            
+            # 원래 마우스 위치로 복원
+            if original_mouse_pos:
+                try:
+                    windll.user32.SetCursorPos(original_mouse_pos[0], original_mouse_pos[1])
+                    print(f"  → 마우스 위치 복원 완료: ({original_mouse_pos[0]}, {original_mouse_pos[1]})")
+                except Exception as e:
+                    print(f"  ⚠ 마우스 위치 복원 오류: {e}")
+            
+            print("  ✓ 복원 완료!")
             
     except Exception as e:
         print(f"✗ 오류 발생: {e}")
