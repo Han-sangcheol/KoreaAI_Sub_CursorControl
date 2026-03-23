@@ -268,11 +268,14 @@ def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
     """
     사용자가 키보드나 마우스를 사용하지 않는 상태가 지정된 시간만큼 지속될 때까지 대기
     이 함수 호출 시점부터 idle_seconds 동안 입력이 없어야 함
-    유휴 대기 중 마우스 포인터 옆에 남은 시간을 실시간 표시
+    유휴 대기 중 마우스 포인터 옆에 남은 시간을 실시간 표시 (총 5초: 입력감지 3초 + 활성화 1초 + 안정화 1초)
     
     Args:
         idle_seconds: 대기할 유휴 시간(초)
         check_interval: 확인 간격(초)
+    
+    Returns:
+        tuple: (countdown_process, 성공 여부)
     """
     print(f"\n  -> 사용자 입력 감지 시작 ({idle_seconds}초간 유휴 상태 대기)")
     print(f"     [INFO] 키보드나 마우스를 사용하면 타이머가 리셋됩니다")
@@ -308,13 +311,14 @@ def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
         # 마지막 입력 이후 경과 시간 계산
         time_since_last_input = current_time - last_input_detected_time
         
-        # 카운트다운 프로세스 시작 (0.5초 유휴 후)
+        # 카운트다운 프로세스 시작 (0.5초 유휴 후) - 총 5초 카운트다운
         if time_since_last_input >= 0.5 and countdown_process is None:
             try:
                 countdown_script = os.path.join(os.path.dirname(__file__), 'realtime_countdown.py')
                 if os.path.exists(countdown_script):
-                    # 남은 시간 계산
-                    remaining = idle_seconds - time_since_last_input
+                    # 전체 프로세스 시간: 입력감지(3초) + 활성화(1초) + 안정화(1초) = 5초
+                    total_process_time = idle_seconds + 2.0
+                    remaining = total_process_time - time_since_last_input
                     if remaining > 0:
                         countdown_process = subprocess.Popen(
                             [sys.executable, countdown_script, str(remaining)],
@@ -329,16 +333,9 @@ def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
             print(f"     [{bar_full}] 100.0% | 유휴: {idle_seconds:.1f}초 / {idle_seconds}초 (총 대기: {elapsed_total:.1f}초)    ")
             print(f"  [OK] 유휴 상태 {idle_seconds}초 확인 완료! (총 대기 시간: {elapsed_total:.1f}초)")
             
-            # 카운트다운 프로세스 정리
-            if countdown_process and countdown_process.poll() is None:
-                try:
-                    countdown_process.terminate()
-                    countdown_process.wait(timeout=1)
-                except:
-                    pass
-            
+            # 카운트다운 프로세스는 계속 유지 (활성화 + 안정화 단계에서 사용)
             print(f"  -> 이제 복사 및 붙여넣기를 진행합니다...")
-            break
+            return countdown_process, True
         
         # 진행 상태 표시
         progress = (time_since_last_input / idle_seconds) * 100
@@ -591,7 +588,7 @@ def find_chat_input(cursor_window):
         return None
 
 
-def send_text_to_cursor(text, cursor_window):
+def send_text_to_cursor(text, cursor_window, countdown_process=None):
     """
     텍스트를 지정된 Cursor 프롬프트 입력창에 입력하고 엔터
     Electron 앱 특성상 윈도우 활성화 후 키보드 시뮬레이션 사용
@@ -601,11 +598,17 @@ def send_text_to_cursor(text, cursor_window):
     Ctrl+N으로 새로운 프롬프트 창을 열어서 깨끗한 상태에서 붙여넣기 실행
     
     전체 실행 시간이 너무 길면 타임아웃으로 종료하여 모니터링 루프가 멈추지 않도록 함
+    
+    Args:
+        text: 입력할 텍스트
+        cursor_window: Cursor 윈도우 객체
+        countdown_process: 카운트다운 프로세스 (계속 표시용)
     """
     global input_block_active, safety_timer
     
     start_time = time.time()
     timeout_seconds = 30.0  # 최대 30초 제한
+    activation_start_time = None
     
     try:
         if not text:
@@ -642,11 +645,16 @@ def send_text_to_cursor(text, cursor_window):
             return False
         
         # 사용자 입력이 없는 상태가 3.0초 지속될 때까지 대기
-        wait_for_user_idle(idle_seconds=3.0, check_interval=0.5)
+        countdown_process, idle_success = wait_for_user_idle(idle_seconds=3.0, check_interval=0.5)
         
         # 타임아웃 체크
         if time.time() - start_time > timeout_seconds:
             print(f"  ⚠ 타임아웃 ({timeout_seconds}초 초과)")
+            if countdown_process and countdown_process.poll() is None:
+                try:
+                    countdown_process.terminate()
+                except:
+                    pass
             return False
         
         # ★ 유휴 상태 확인 즉시 초고속 붙여넣기 시작
@@ -655,12 +663,14 @@ def send_text_to_cursor(text, cursor_window):
         # Cursor 윈도우를 강제로 전면으로 가져오기 (여러 번 시도)
         hwnd = cursor_window.handle
         
-        print("  → Cursor 윈도우 활성화 (3회 시도)...")
+        print("  → Cursor 윈도우 활성화 중 (최대 3회 시도, 약 1초)...")
+        activation_start_time = time.time()
         activation_success = False
         for attempt in range(3):
             success = force_window_to_foreground(hwnd)
             if success:
-                print(f"  → ✓ Cursor 윈도우 활성화 완료 (시도 {attempt + 1}/3)")
+                activation_time = time.time() - activation_start_time
+                print(f"  → ✓ Cursor 윈도우 활성화 완료 (시도 {attempt + 1}/3, {activation_time:.1f}초 소요)")
                 activation_success = True
                 break
             else:
@@ -668,14 +678,26 @@ def send_text_to_cursor(text, cursor_window):
                 time.sleep(1.0)  # 재시도 전 충분한 대기 시간
         
         if not activation_success:
-            print("  → ⚠ 3회 시도 후에도 활성화 실패, 마지막 시도 진행...")
+            activation_time = time.time() - activation_start_time
+            print(f"  → ⚠ 3회 시도 완료 ({activation_time:.1f}초 소요), 마지막 시도 진행...")
             # 마지막 한 번 더 시도
             force_window_to_foreground(hwnd)
             time.sleep(0.5)
         
         # 윈도우 활성화 후 충분한 안정화 시간
-        print("  → 윈도우 안정화 대기...")
+        print("  → 윈도우 안정화 대기 중 (1초)...")
+        stabilization_start = time.time()
         time.sleep(1.0)  # 확실한 안정화
+        stabilization_time = time.time() - stabilization_start
+        print(f"  → ✓ 안정화 완료 ({stabilization_time:.1f}초 소요)")
+        
+        # 카운트다운 프로세스 종료 (0초 도달)
+        if countdown_process and countdown_process.poll() is None:
+            try:
+                countdown_process.terminate()
+                countdown_process.wait(timeout=0.5)
+            except:
+                pass
         
         # 타임아웃 체크
         if time.time() - start_time > timeout_seconds:
@@ -773,6 +795,13 @@ def send_text_to_cursor(text, cursor_window):
             # ★★★ 원래 상태로 복원
             print("  → 원래 상태로 복원 중...")
             
+            # 현재 마우스 위치 확인 (사용자가 이동했는지 체크)
+            current_mouse_pos = None
+            try:
+                current_mouse_pos = win32api.GetCursorPos()
+            except:
+                pass
+            
             # 원래 윈도우로 복원
             if original_foreground_hwnd and original_foreground_hwnd != 0:
                 try:
@@ -796,11 +825,22 @@ def send_text_to_cursor(text, cursor_window):
                 except Exception as e:
                     print(f"  ⚠ 윈도우 복원 오류: {e}")
             
-            # 원래 마우스 위치로 복원
-            if original_mouse_pos:
+            # 원래 마우스 위치로 복원 (사용자가 이동하지 않은 경우에만)
+            if original_mouse_pos and current_mouse_pos:
                 try:
-                    windll.user32.SetCursorPos(original_mouse_pos[0], original_mouse_pos[1])
-                    print(f"  → 마우스 위치 복원 완료: ({original_mouse_pos[0]}, {original_mouse_pos[1]})")
+                    # 마우스 위치가 변경되었는지 확인 (오차 범위 10px)
+                    mouse_moved = (
+                        abs(current_mouse_pos[0] - original_mouse_pos[0]) > 10 or
+                        abs(current_mouse_pos[1] - original_mouse_pos[1]) > 10
+                    )
+                    
+                    if mouse_moved:
+                        print(f"  → 사용자가 마우스를 이동함 - 위치 복원 생략")
+                        print(f"     원래: ({original_mouse_pos[0]}, {original_mouse_pos[1]}), 현재: ({current_mouse_pos[0]}, {current_mouse_pos[1]})")
+                    else:
+                        # 마우스가 거의 같은 위치면 원래 위치로 복원
+                        windll.user32.SetCursorPos(original_mouse_pos[0], original_mouse_pos[1])
+                        print(f"  → 마우스 위치 복원 완료: ({original_mouse_pos[0]}, {original_mouse_pos[1]})")
                 except Exception as e:
                     print(f"  ⚠ 마우스 위치 복원 오류: {e}")
             
