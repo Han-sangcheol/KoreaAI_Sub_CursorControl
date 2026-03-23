@@ -8,6 +8,8 @@ Cursor 프롬프트 입력창 자동화 프로그램
 - 사용자 입력 감지: 키보드/마우스 입력이 3초간 없을 때까지 대기 후 실행
 - 2초 안전 타이머: 입력 차단이 2초 이상 지속되지 않도록 자동 해제
 - Ctrl+N으로 새 프롬프트 창을 열어서 확실하게 붙여넣기
+- 사용자 입력 감지 시작 시 콘솔에 3-2-1 카운트다운 표시
+- 선택 개수와 일치할 때: 제목에 "prompt"가 포함된 Cursor 개수가 요청한 윈도우 개수와 같으면 자동 선택
 """
 
 import pywinauto
@@ -27,6 +29,8 @@ import win32process
 import ctypes
 from ctypes import windll, Structure, c_long, byref
 import threading
+import subprocess
+import multiprocessing
 
 
 class LASTINPUTINFO(Structure):
@@ -264,18 +268,20 @@ def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
     """
     사용자가 키보드나 마우스를 사용하지 않는 상태가 지정된 시간만큼 지속될 때까지 대기
     이 함수 호출 시점부터 idle_seconds 동안 입력이 없어야 함
+    유휴 대기 중 마우스 포인터 옆에 남은 시간을 실시간 표시
     
     Args:
         idle_seconds: 대기할 유휴 시간(초)
         check_interval: 확인 간격(초)
     """
-    print(f"\n  → 사용자 입력 감지 시작 ({idle_seconds}초간 유휴 상태 대기)")
+    print(f"\n  -> 사용자 입력 감지 시작 ({idle_seconds}초간 유휴 상태 대기)")
     print(f"     [INFO] 키보드나 마우스를 사용하면 타이머가 리셋됩니다")
     
     # 이 시점부터 idle_seconds 동안 입력이 없어야 함
     idle_start_time = time.time()
     last_input_detected_time = time.time()
     total_start_time = time.time()
+    countdown_process = None
     
     while True:
         current_time = time.time()
@@ -285,33 +291,65 @@ def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
         
         # 시스템 유휴 시간이 0.5초 미만이면 사용자가 방금 입력함
         if system_idle_time < 0.5:
-            if elapsed_since_last_input > 0.5:  # 이전에 유휴 상태였다면
-                print(f"\n  ⚠ 사용자 입력 감지! 타이머 리셋 (총 대기: {elapsed_total:.1f}초)")
+            if elapsed_since_last_input > 0.5:
+                print(f"\n  [WARNING] 사용자 입력 감지! 타이머 리셋 (총 대기: {elapsed_total:.1f}초)")
+                
+                # 카운트다운 프로세스 종료
+                if countdown_process and countdown_process.poll() is None:
+                    try:
+                        countdown_process.terminate()
+                    except:
+                        pass
+                    countdown_process = None
+                    
             last_input_detected_time = current_time
             idle_start_time = current_time
         
         # 마지막 입력 이후 경과 시간 계산
         time_since_last_input = current_time - last_input_detected_time
         
+        # 카운트다운 프로세스 시작 (0.5초 유휴 후)
+        if time_since_last_input >= 0.5 and countdown_process is None:
+            try:
+                countdown_script = os.path.join(os.path.dirname(__file__), 'realtime_countdown.py')
+                if os.path.exists(countdown_script):
+                    # 남은 시간 계산
+                    remaining = idle_seconds - time_since_last_input
+                    if remaining > 0:
+                        countdown_process = subprocess.Popen(
+                            [sys.executable, countdown_script, str(remaining)],
+                            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+                        )
+            except Exception as e:
+                print(f"  [WARNING] 카운트다운 시작 오류: {e}")
+        
         # idle_seconds 이상 입력이 없으면 완료
         if time_since_last_input >= idle_seconds:
-            # ★ 100% 진행률 표시 먼저 출력
-            bar_full = '█' * 20
+            bar_full = '=' * 20
             print(f"     [{bar_full}] 100.0% | 유휴: {idle_seconds:.1f}초 / {idle_seconds}초 (총 대기: {elapsed_total:.1f}초)    ")
-            print(f"  ✓ 유휴 상태 {idle_seconds}초 확인 완료! (총 대기 시간: {elapsed_total:.1f}초)")
-            print(f"  → 이제 복사 및 붙여넣기를 진행합니다...")
+            print(f"  [OK] 유휴 상태 {idle_seconds}초 확인 완료! (총 대기 시간: {elapsed_total:.1f}초)")
+            
+            # 카운트다운 프로세스 정리
+            if countdown_process and countdown_process.poll() is None:
+                try:
+                    countdown_process.terminate()
+                    countdown_process.wait(timeout=1)
+                except:
+                    pass
+            
+            print(f"  -> 이제 복사 및 붙여넣기를 진행합니다...")
             break
         
         # 진행 상태 표시
         progress = (time_since_last_input / idle_seconds) * 100
         bar_length = 20
         filled = int(bar_length * time_since_last_input / idle_seconds)
-        bar = '█' * filled + '░' * (bar_length - filled)
+        bar = '=' * filled + '-' * (bar_length - filled)
         
         print(f"     [{bar}] {progress:5.1f}% | 유휴: {time_since_last_input:.1f}초 / {idle_seconds}초 (총 대기: {elapsed_total:.1f}초)    ", end='\r')
         time.sleep(check_interval)
     
-    print()  # 줄바꿈
+    print()
 
 
 def get_files_combined_hash(status_file, roll_file):
@@ -998,18 +1036,31 @@ if __name__ == "__main__":
         print(f"  요청한 {num_windows}개를 선택할 수 없습니다.")
         sys.exit(1)
     
-    # 여러 윈도우 선택
+    # 제목에 "prompt" 포함 윈도우 개수가 요청 개수와 같으면 자동 선택
+    prompt_windows = [
+        w for w in cursor_windows
+        if "prompt" in (w.get("title") or "").lower()
+    ]
     selected_windows = []
-    for i in range(num_windows):
-        print(f"\n[{i + 1}/{num_windows}] 번째 Cursor 윈도우 선택:")
-        cursor_window = select_cursor_window(cursor_windows)
-        
-        if not cursor_window:
-            print("Cursor 윈도우가 선택되지 않았습니다.")
-            sys.exit(1)
-        
-        selected_windows.append(cursor_window)
-        print(f"  → 선택됨: {cursor_window.window_text()}")
+    if len(prompt_windows) == num_windows:
+        print(
+            f'\n제목에 "prompt"가 포함된 Cursor 윈도우가 {num_windows}개뿐이어서 '
+            "자동 선택합니다."
+        )
+        for w in prompt_windows:
+            selected_windows.append(w["window"])
+            print(f"  → {w['title']}")
+    else:
+        for i in range(num_windows):
+            print(f"\n[{i + 1}/{num_windows}] 번째 Cursor 윈도우 선택:")
+            cursor_window = select_cursor_window(cursor_windows)
+            
+            if not cursor_window:
+                print("Cursor 윈도우가 선택되지 않았습니다.")
+                sys.exit(1)
+            
+            selected_windows.append(cursor_window)
+            print(f"  → 선택됨: {cursor_window.window_text()}")
     
     print(f"\n✓ 총 {len(selected_windows)}개의 Cursor 윈도우 선택 완료")
     print("\n선택된 윈도우 목록:")
