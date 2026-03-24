@@ -122,3 +122,28 @@ python cursor_auto_input.py
 - 종료하려면 `Ctrl+C`를 누르세요
 - 두 파일 모두 UTF-8 인코딩을 권장합니다
 - 프로그램을 실행한 디렉토리에 `status.json`과 `roll.txt` 파일이 있어야 합니다
+
+
+## 빌드 및 설치 패키지 (Windows)
+
+### 1) 실행 파일 폴더 만들기 (PyInstaller)
+
+프로젝트 루트에서:
+
+```powershell
+Set-Location d:\my_project\cursor_control
+pip install pyinstaller
+pyinstaller --noconfirm cursor_auto_input.spec
+```
+
+산출물: `dist\cursor_auto_input\` (exe, `_internal` 포함 — 이 폴더는 분리하지 마세요.)
+
+### 2) 설치형 Setup.exe 만들기 (Inno Setup 6)
+
+1. [Inno Setup](https://jrsoftware.org/isdl.php) 6을 설치합니다.
+2. 프로젝트 루트의 `cursor_auto_input.iss`를 **Inno Setup Compiler**로 열고 Compile(F9)합니다.
+3. 결과: `installer_output\CursorAutoInput_Setup_1.0.0.exe` (버전은 `.iss`의 `MyAppVersion`과 동일)
+
+설치 시 `Program Files` 아래 `CursorAutoInput`에 복사되며, 처음 설치할 때만 `status.json`(템플릿), `roll.txt`, `input_example.txt`가 없을 때만 배치됩니다. 이후 재설치 시 사용자가 수정한 파일은 덮어쓰지 않습니다.
+
+시작 메뉴·(선택) 바탕 화면 바로가기의 **작업 폴더는 설치 디렉터리**로 지정되어 있어, `status.json`·`roll.txt`는 설치 폴더에서 편집하면 됩니다.

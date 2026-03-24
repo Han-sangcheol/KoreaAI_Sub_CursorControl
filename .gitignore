@@ -9,6 +9,7 @@ __pycache__/
 *.so
 .Python
 build/
+installer_output/
 develop-eggs/
 dist/
 downloads/

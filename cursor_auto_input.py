@@ -33,6 +33,34 @@ import subprocess
 import multiprocessing
 
 
+# ============================================================
+# 설정 (Configuration)
+# ============================================================
+class Config:
+    """프로그램 실행 시간 관련 설정"""
+    
+    # 사용자 입력 감지 설정
+    USER_IDLE_SECONDS = 3.0          # 사용자 입력이 없어야 하는 대기 시간 (초)
+    USER_IDLE_CHECK_INTERVAL = 0.5   # 사용자 입력 감지 체크 간격 (초)
+    
+    # 윈도우 활성화 설정
+    WINDOW_ACTIVATION_RETRY_DELAY = 0.5   # 윈도우 활성화 재시도 간격 (초)
+    WINDOW_STABILIZATION_DELAY = 0.5      # 윈도우 안정화 대기 시간 (초)
+    
+    # 붙여넣기 작업 설정
+    NEW_PROMPT_OPEN_DELAY = 0.5      # 새 프롬프트 창 열기 대기 (초)
+    PASTE_COMPLETION_DELAY = 0.5     # 붙여넣기 후 대기 시간 (초)
+    
+    # 안전장치 설정
+    INPUT_BLOCK_SAFETY_TIMEOUT = 2.0 # 입력 차단 자동 해제 시간 (초)
+    OPERATION_TIMEOUT = 30.0         # 전체 작업 타임아웃 (초)
+    
+    # 파일 모니터링 설정
+    FILE_CHECK_INTERVAL = 1.0        # 파일 변경 확인 간격 (초)
+
+# ============================================================
+
+
 class LASTINPUTINFO(Structure):
     """
     Windows API의 LASTINPUTINFO 구조체
@@ -99,10 +127,10 @@ def block_user_input_safe(block=True):
                 input_block_active = True
                 
                 # 2초 후 자동 해제 타이머 시작
-                safety_timer = threading.Timer(2.0, emergency_unblock_input)
+                safety_timer = threading.Timer(Config.INPUT_BLOCK_SAFETY_TIMEOUT, emergency_unblock_input)
                 safety_timer.daemon = True
                 safety_timer.start()
-                print("  → [안전장치] 2초 타이머 가동")
+                print(f"  → [안전장치] {Config.INPUT_BLOCK_SAFETY_TIMEOUT}초 타이머 가동")
                 
                 return True
             else:
@@ -329,7 +357,7 @@ def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
         
         # idle_seconds 이상 입력이 없으면 완료
         if time_since_last_input >= idle_seconds:
-            bar_full = '=' * 20
+            bar_full = '█' * 20
             print(f"     [{bar_full}] 100.0% | 유휴: {idle_seconds:.1f}초 / {idle_seconds}초 (총 대기: {elapsed_total:.1f}초)    ")
             print(f"  [OK] 유휴 상태 {idle_seconds}초 확인 완료! (총 대기 시간: {elapsed_total:.1f}초)")
             
@@ -337,11 +365,11 @@ def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
             print(f"  -> 이제 복사 및 붙여넣기를 진행합니다...")
             return countdown_process, True
         
-        # 진행 상태 표시
+        # 진행 상태 표시 (블록 형태)
         progress = (time_since_last_input / idle_seconds) * 100
         bar_length = 20
         filled = int(bar_length * time_since_last_input / idle_seconds)
-        bar = '=' * filled + '-' * (bar_length - filled)
+        bar = '█' * filled + '░' * (bar_length - filled)
         
         print(f"     [{bar}] {progress:5.1f}% | 유휴: {time_since_last_input:.1f}초 / {idle_seconds}초 (총 대기: {elapsed_total:.1f}초)    ", end='\r')
         time.sleep(check_interval)
@@ -607,7 +635,7 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
     global input_block_active, safety_timer
     
     start_time = time.time()
-    timeout_seconds = 30.0  # 최대 30초 제한
+    timeout_seconds = Config.OPERATION_TIMEOUT
     activation_start_time = None
     
     try:
@@ -644,8 +672,8 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
             print(f"  ⚠ 타임아웃 ({timeout_seconds}초 초과)")
             return False
         
-        # 사용자 입력이 없는 상태가 3.0초 지속될 때까지 대기
-        countdown_process, idle_success = wait_for_user_idle(idle_seconds=3.0, check_interval=0.5)
+        # 사용자 입력이 없는 상태가 지정된 시간만큼 지속될 때까지 대기
+        countdown_process, idle_success = wait_for_user_idle(idle_seconds=Config.USER_IDLE_SECONDS, check_interval=Config.USER_IDLE_CHECK_INTERVAL)
         
         # 타임아웃 체크
         if time.time() - start_time > timeout_seconds:
@@ -663,7 +691,7 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
         # Cursor 윈도우를 강제로 전면으로 가져오기 (여러 번 시도)
         hwnd = cursor_window.handle
         
-        print("  → Cursor 윈도우 활성화 중 (최대 3회 시도, 약 1초)...")
+        print(f"  → Cursor 윈도우 활성화 중 (최대 3회 시도, 약 {Config.WINDOW_ACTIVATION_RETRY_DELAY * 2}초)...")
         activation_start_time = time.time()
         activation_success = False
         for attempt in range(3):
@@ -675,7 +703,7 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
                 break
             else:
                 print(f"  → ⚠ 활성화 실패, 재시도... (시도 {attempt + 1}/3)")
-                time.sleep(1.0)  # 재시도 전 충분한 대기 시간
+                time.sleep(Config.WINDOW_ACTIVATION_RETRY_DELAY)
         
         if not activation_success:
             activation_time = time.time() - activation_start_time
@@ -685,9 +713,9 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
             time.sleep(0.5)
         
         # 윈도우 활성화 후 충분한 안정화 시간
-        print("  → 윈도우 안정화 대기 중 (1초)...")
+        print(f"  → 윈도우 안정화 대기 중 ({Config.WINDOW_STABILIZATION_DELAY}초)...")
         stabilization_start = time.time()
-        time.sleep(1.0)  # 확실한 안정화
+        time.sleep(Config.WINDOW_STABILIZATION_DELAY)
         stabilization_time = time.time() - stabilization_start
         print(f"  → ✓ 안정화 완료 ({stabilization_time:.1f}초 소요)")
         
@@ -736,7 +764,7 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
             print("  → Ctrl+N으로 새 프롬프트 창 열기...")
             try:
                 send_keys("^n")  # Ctrl+N (새 프롬프트)
-                time.sleep(2.0)  # 새 프롬프트 창이 완전히 열릴 때까지 충분한 대기
+                time.sleep(Config.NEW_PROMPT_OPEN_DELAY)
                 print("  → 새 프롬프트 창 열림")
             except Exception as e:
                 print(f"  ⚠ 새 프롬프트 열기 오류: {e}")
@@ -745,7 +773,7 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
             print("  → 붙여넣기 실행...")
             try:
                 send_keys("^v")  # Ctrl+V (붙여넣기)
-                time.sleep(3.0)  # 대용량 텍스트를 위한 충분한 대기
+                time.sleep(Config.PASTE_COMPLETION_DELAY)
                 print("  → 붙여넣기 명령 전송 완료")
             except Exception as e:
                 print(f"  ⚠ 붙여넣기 오류: {e}")
@@ -795,13 +823,6 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
             # ★★★ 원래 상태로 복원
             print("  → 원래 상태로 복원 중...")
             
-            # 현재 마우스 위치 확인 (사용자가 이동했는지 체크)
-            current_mouse_pos = None
-            try:
-                current_mouse_pos = win32api.GetCursorPos()
-            except:
-                pass
-            
             # 원래 윈도우로 복원
             if original_foreground_hwnd and original_foreground_hwnd != 0:
                 try:
@@ -826,8 +847,11 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
                     print(f"  ⚠ 윈도우 복원 오류: {e}")
             
             # 원래 마우스 위치로 복원 (사용자가 이동하지 않은 경우에만)
-            if original_mouse_pos and current_mouse_pos:
+            if original_mouse_pos:
                 try:
+                    # 복원 직전에 현재 마우스 위치 다시 확인 (사용자가 이동했는지 체크)
+                    current_mouse_pos = win32api.GetCursorPos()
+                    
                     # 마우스 위치가 변경되었는지 확인 (오차 범위 10px)
                     mouse_moved = (
                         abs(current_mouse_pos[0] - original_mouse_pos[0]) > 10 or
