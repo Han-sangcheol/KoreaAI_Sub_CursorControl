@@ -292,33 +292,98 @@ def force_window_to_foreground(hwnd):
         return False
 
 
+def detect_cancel_gesture():
+    """
+    사용자의 취소 제스처를 감지 (마우스 흔들기 2회 이상 또는 더블 클릭)
+    
+    Returns:
+        bool: 취소 제스처 감지 여부
+    """
+    try:
+        import win32api
+        
+        # 마우스 위치 추적
+        mouse_positions = []
+        mouse_move_count = 0
+        last_pos = win32api.GetCursorPos()
+        check_start = time.time()
+        
+        # 0.5초 동안 마우스 움직임 감지
+        while time.time() - check_start < 0.5:
+            current_pos = win32api.GetCursorPos()
+            
+            # 마우스가 10픽셀 이상 움직였는지 확인
+            if abs(current_pos[0] - last_pos[0]) > 10 or abs(current_pos[1] - last_pos[1]) > 10:
+                mouse_move_count += 1
+                last_pos = current_pos
+                
+                # 2회 이상 움직임 감지시 취소
+                if mouse_move_count >= 2:
+                    return True
+            
+            # 더블 클릭 감지 (왼쪽 버튼)
+            left_button_state = win32api.GetAsyncKeyState(0x01)  # VK_LBUTTON
+            if left_button_state & 0x8000:  # 버튼이 눌린 상태
+                time.sleep(0.05)
+                # 짧은 시간 후 다시 확인
+                left_button_state2 = win32api.GetAsyncKeyState(0x01)
+                if left_button_state2 & 0x8000:
+                    return True
+            
+            time.sleep(0.05)
+        
+        return False
+    except Exception as e:
+        print(f"  [WARNING] 취소 제스처 감지 오류: {e}")
+        return False
+
+
 def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
     """
     사용자가 키보드나 마우스를 사용하지 않는 상태가 지정된 시간만큼 지속될 때까지 대기
     이 함수 호출 시점부터 idle_seconds 동안 입력이 없어야 함
     유휴 대기 중 마우스 포인터 옆에 남은 시간을 실시간 표시 (총 5초: 입력감지 3초 + 활성화 1초 + 안정화 1초)
+    마우스를 2회 이상 흔들거나 더블 클릭하면 취소됨
     
     Args:
         idle_seconds: 대기할 유휴 시간(초)
         check_interval: 확인 간격(초)
     
     Returns:
-        tuple: (countdown_process, 성공 여부)
+        tuple: (countdown_process, 성공 여부, 취소 여부)
     """
     print(f"\n  -> 사용자 입력 감지 시작 ({idle_seconds}초간 유휴 상태 대기)")
     print(f"     [INFO] 키보드나 마우스를 사용하면 타이머가 리셋됩니다")
+    print(f"     [INFO] 마우스를 2회 이상 흔들거나 더블 클릭하면 취소됩니다")
     
     # 이 시점부터 idle_seconds 동안 입력이 없어야 함
     idle_start_time = time.time()
     last_input_detected_time = time.time()
     total_start_time = time.time()
     countdown_process = None
+    last_cancel_check_time = time.time()
     
     while True:
         current_time = time.time()
         system_idle_time = get_idle_duration()
         elapsed_since_last_input = current_time - last_input_detected_time
         elapsed_total = current_time - total_start_time
+        
+        # 카운트다운이 표시 중일 때만 취소 제스처 감지 (0.5초마다)
+        if countdown_process and countdown_process.poll() is None:
+            if current_time - last_cancel_check_time >= 0.5:
+                if detect_cancel_gesture():
+                    print(f"\n  [CANCEL] 사용자 취소 제스처 감지! (마우스 흔들기 또는 더블 클릭)")
+                    
+                    # 카운트다운 프로세스 종료
+                    try:
+                        countdown_process.terminate()
+                        countdown_process.wait(timeout=0.5)
+                    except:
+                        pass
+                    
+                    return None, False, True  # 취소됨
+                last_cancel_check_time = current_time
         
         # 시스템 유휴 시간이 0.5초 미만이면 사용자가 방금 입력함
         if system_idle_time < 0.5:
@@ -363,7 +428,7 @@ def wait_for_user_idle(idle_seconds=3.0, check_interval=0.5):
             
             # 카운트다운 프로세스는 계속 유지 (활성화 + 안정화 단계에서 사용)
             print(f"  -> 이제 복사 및 붙여넣기를 진행합니다...")
-            return countdown_process, True
+            return countdown_process, True, False  # 성공, 취소되지 않음
         
         # 진행 상태 표시 (블록 형태)
         progress = (time_since_last_input / idle_seconds) * 100
@@ -649,6 +714,7 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
         print("  → 현재 상태 저장 중...")
         original_foreground_hwnd = None
         original_mouse_pos = None
+        paste_start_mouse_pos = None  # 붙여넣기 시작 시점의 마우스 위치
         
         try:
             # 현재 전면 윈도우 저장
@@ -660,7 +726,7 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
                 except:
                     print(f"  → 원래 활성 윈도우 핸들: {original_foreground_hwnd}")
             
-            # 현재 마우스 위치 저장
+            # 현재 마우스 위치 저장 (3초 대기 시작 전)
             cursor_pos = win32api.GetCursorPos()
             original_mouse_pos = (cursor_pos[0], cursor_pos[1])
             print(f"  → 원래 마우스 위치: ({original_mouse_pos[0]}, {original_mouse_pos[1]})")
@@ -673,7 +739,12 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
             return False
         
         # 사용자 입력이 없는 상태가 지정된 시간만큼 지속될 때까지 대기
-        countdown_process, idle_success = wait_for_user_idle(idle_seconds=Config.USER_IDLE_SECONDS, check_interval=Config.USER_IDLE_CHECK_INTERVAL)
+        countdown_process, idle_success, cancelled = wait_for_user_idle(idle_seconds=Config.USER_IDLE_SECONDS, check_interval=Config.USER_IDLE_CHECK_INTERVAL)
+        
+        # 취소된 경우
+        if cancelled:
+            print(f"  ⚠ 사용자가 작업을 취소했습니다.")
+            return False
         
         # 타임아웃 체크
         if time.time() - start_time > timeout_seconds:
@@ -751,6 +822,14 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
         
         # ★ 사용자 입력 차단 시작 (붙여넣기 중 방해 방지)
         input_blocked = block_user_input(True)
+        
+        # ★★★ 입력 차단 시작 시점의 마우스 위치 저장 (붙여넣기 작업 시작 기준점)
+        try:
+            cursor_pos = win32api.GetCursorPos()
+            paste_start_mouse_pos = (cursor_pos[0], cursor_pos[1])
+            print(f"  → 붙여넣기 시작 시점 마우스 위치: ({paste_start_mouse_pos[0]}, {paste_start_mouse_pos[1]})")
+        except Exception as e:
+            print(f"  ⚠ 시작 시점 마우스 위치 저장 오류: {e}")
         
         try:
             # ★★★ 입력 차단 후 클립보드에 복사 (사용자 복사 내용 덮어쓰기 방지)
@@ -852,19 +931,33 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
                     # 복원 직전에 현재 마우스 위치 다시 확인 (사용자가 이동했는지 체크)
                     current_mouse_pos = win32api.GetCursorPos()
                     
-                    # 마우스 위치가 변경되었는지 확인 (오차 범위 10px)
-                    mouse_moved = (
-                        abs(current_mouse_pos[0] - original_mouse_pos[0]) > 10 or
-                        abs(current_mouse_pos[1] - original_mouse_pos[1]) > 10
-                    )
-                    
-                    if mouse_moved:
-                        print(f"  → 사용자가 마우스를 이동함 - 위치 복원 생략")
-                        print(f"     원래: ({original_mouse_pos[0]}, {original_mouse_pos[1]}), 현재: ({current_mouse_pos[0]}, {current_mouse_pos[1]})")
+                    # 붙여넣기 시작 시점의 마우스 위치와 비교 (입력 차단 후 이동 감지)
+                    if paste_start_mouse_pos:
+                        mouse_moved_during_paste = (
+                            abs(current_mouse_pos[0] - paste_start_mouse_pos[0]) > 10 or
+                            abs(current_mouse_pos[1] - paste_start_mouse_pos[1]) > 10
+                        )
+                        
+                        if mouse_moved_during_paste:
+                            print(f"  → 붙여넣기 중 사용자가 마우스를 이동함 - 위치 복원 생략")
+                            print(f"     시작: ({paste_start_mouse_pos[0]}, {paste_start_mouse_pos[1]}), 현재: ({current_mouse_pos[0]}, {current_mouse_pos[1]})")
+                        else:
+                            # 마우스가 거의 같은 위치면 원래 위치로 복원
+                            windll.user32.SetCursorPos(original_mouse_pos[0], original_mouse_pos[1])
+                            print(f"  → 마우스 위치 복원 완료: ({original_mouse_pos[0]}, {original_mouse_pos[1]})")
                     else:
-                        # 마우스가 거의 같은 위치면 원래 위치로 복원
-                        windll.user32.SetCursorPos(original_mouse_pos[0], original_mouse_pos[1])
-                        print(f"  → 마우스 위치 복원 완료: ({original_mouse_pos[0]}, {original_mouse_pos[1]})")
+                        # paste_start_mouse_pos가 없으면 original_mouse_pos와 비교
+                        mouse_moved = (
+                            abs(current_mouse_pos[0] - original_mouse_pos[0]) > 10 or
+                            abs(current_mouse_pos[1] - original_mouse_pos[1]) > 10
+                        )
+                        
+                        if mouse_moved:
+                            print(f"  → 사용자가 마우스를 이동함 - 위치 복원 생략")
+                            print(f"     원래: ({original_mouse_pos[0]}, {original_mouse_pos[1]}), 현재: ({current_mouse_pos[0]}, {current_mouse_pos[1]})")
+                        else:
+                            windll.user32.SetCursorPos(original_mouse_pos[0], original_mouse_pos[1])
+                            print(f"  → 마우스 위치 복원 완료: ({original_mouse_pos[0]}, {original_mouse_pos[1]})")
                 except Exception as e:
                     print(f"  ⚠ 마우스 위치 복원 오류: {e}")
             
