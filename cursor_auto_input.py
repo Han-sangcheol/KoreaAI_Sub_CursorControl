@@ -1,15 +1,31 @@
 """
 Cursor 프롬프트 입력창 자동화 프로그램
-- status.json과 roll.txt 파일을 모니터링
+
+## 주요 기능
+- status.json과 roll.txt 파일을 모니터링하여 내용 변경 감지
 - 두 파일의 내용을 합쳐서 Cursor IDE의 프롬프트 입력창에 자동으로 입력
-- Windows 메시지를 사용하여 백그라운드에서 안전하게 입력 (사용자의 작업 방해 없음)
+- Windows 메시지를 사용하여 백그라운드에서 안전하게 입력 (사용자의 작업 방해 최소화)
 - 입력 후 자동으로 엔터 키를 눌러 전송
 - 여러 개의 Cursor 인스턴스가 실행 중일 때 사용자가 선택할 수 있도록 지원
+
+## 사용자 입력 감지 및 안전장치
 - 사용자 입력 감지: 키보드/마우스 입력이 3초간 없을 때까지 대기 후 실행
 - 2초 안전 타이머: 입력 차단이 2초 이상 지속되지 않도록 자동 해제
+- 5회 연속 입력 차단 해제 검증: 예외 발생 시에도 확실하게 차단 해제
+- Alt 키 강제 해제: 윈도우 활성화 중 Alt 키가 눌린 상태로 유지되지 않도록 finally 블록에서 처리
+- 모든 수정자 키 해제: 예외 발생 시 Ctrl, Shift, Alt, Win 키 모두 강제 해제
+
+## 사용자 경험 개선
 - Ctrl+N으로 새 프롬프트 창을 열어서 확실하게 붙여넣기
 - 사용자 입력 감지 시작 시 콘솔에 3-2-1 카운트다운 표시
 - 선택 개수와 일치할 때: 제목에 "prompt"가 포함된 Cursor 개수가 요청한 윈도우 개수와 같으면 자동 선택
+- 마우스 흔들기 또는 더블 클릭으로 작업 취소 가능
+
+## 안전성 강화 (2026-03-30)
+- Alt 키 상태 추적: force_window_to_foreground() 함수에서 Alt 키 누름/해제 상태를 추적하여 finally 블록에서 확실히 해제
+- 입력 차단 상태 추적: send_text_to_cursor() 함수에서 input_blocked 변수로 차단 상태를 명확히 추적
+- 10회 긴급 해제: 예외 발생 시 10회 연속으로 입력 차단 해제 시도
+- 모든 수정자 키 해제: Ctrl, Shift, Alt, Win 키를 모두 강제로 해제하여 키보드 이상 방지
 """
 
 import pywinauto
@@ -196,6 +212,11 @@ def force_window_to_foreground(hwnd):
     Returns:
         bool: 성공 여부
     """
+    alt_key_pressed = False  # Alt 키 상태 추적
+    thread_attached = False  # 스레드 연결 상태 추적
+    current_thread = None
+    foreground_thread = None
+    
     try:
         # 1. 현재 전면 윈도우 확인
         current_foreground = win32gui.GetForegroundWindow()
@@ -214,8 +235,12 @@ def force_window_to_foreground(hwnd):
         time.sleep(0.1)
         
         # 5. Alt 키를 눌러서 입력 포커스 획득 (Windows 보안 정책 우회)
-        windll.user32.keybd_event(0x12, 0, 0, 0)  # Alt Down
-        time.sleep(0.05)
+        try:
+            windll.user32.keybd_event(0x12, 0, 0, 0)  # Alt Down
+            alt_key_pressed = True
+            time.sleep(0.05)
+        except Exception as e:
+            print(f"  ⚠ Alt 키 누름 오류: {e}")
         
         # 6. 현재 프로세스와 전면 윈도우의 스레드를 연결
         if current_foreground != 0:
@@ -226,9 +251,10 @@ def force_window_to_foreground(hwnd):
                 if current_thread != foreground_thread:
                     # 스레드 연결
                     windll.user32.AttachThreadInput(current_thread, foreground_thread, True)
+                    thread_attached = True
                     time.sleep(0.05)
-            except:
-                pass
+            except Exception as e:
+                print(f"  ⚠ 스레드 연결 오류: {e}")
         
         # 7. 여러 방법으로 윈도우 활성화 시도
         try:
@@ -245,20 +271,6 @@ def force_window_to_foreground(hwnd):
             win32gui.SetActiveWindow(hwnd)
         except:
             pass
-        
-        # 8. Alt 키 해제
-        windll.user32.keybd_event(0x12, 0, 2, 0)  # Alt Up
-        time.sleep(0.05)
-        
-        # 9. 스레드 분리
-        if current_foreground != 0:
-            try:
-                current_thread = win32api.GetCurrentThreadId()
-                foreground_thread = win32process.GetWindowThreadProcessId(current_foreground)[0]
-                if current_thread != foreground_thread:
-                    windll.user32.AttachThreadInput(current_thread, foreground_thread, False)
-            except:
-                pass
         
         time.sleep(0.3)
         
@@ -290,6 +302,24 @@ def force_window_to_foreground(hwnd):
     except Exception as e:
         print(f"  ⚠ 윈도우 활성화 오류: {e}")
         return False
+    
+    finally:
+        # ★★★ 반드시 Alt 키 해제 및 스레드 분리 (예외 발생 시에도)
+        if alt_key_pressed:
+            try:
+                windll.user32.keybd_event(0x12, 0, 2, 0)  # Alt Up
+                time.sleep(0.05)
+                print("  → Alt 키 해제 완료")
+            except Exception as e:
+                print(f"  ⚠ Alt 키 해제 오류: {e}")
+        
+        # 스레드 분리
+        if thread_attached and current_thread and foreground_thread:
+            try:
+                windll.user32.AttachThreadInput(current_thread, foreground_thread, False)
+                print("  → 스레드 분리 완료")
+            except Exception as e:
+                print(f"  ⚠ 스레드 분리 오류: {e}")
 
 
 def detect_cancel_gesture():
@@ -702,6 +732,7 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
     start_time = time.time()
     timeout_seconds = Config.OPERATION_TIMEOUT
     activation_start_time = None
+    input_blocked = False  # 입력 차단 상태 추적 변수
     
     try:
         if not text:
@@ -807,9 +838,11 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
         print("  → 프롬프트 입력창 클릭...")
         try:
             rect = win32gui.GetWindowRect(hwnd)
-            # 윈도우 하단 중앙 부근 클릭 (프롬프트 입력창이 보통 하단에 위치)
-            x = rect[0] + (rect[2] - rect[0]) // 2  # 중앙
-            y = rect[3] - 100  # 하단에서 100px 위
+            # 윈도우 우측 75% 위치, 상단에서 30% 아래 위치 클릭
+            window_width = rect[2] - rect[0]
+            window_height = rect[3] - rect[1]
+            x = rect[0] + int(window_width * 0.75)  # 우측으로 75% (50% → 75%)
+            y = rect[1] + int(window_height * 0.30)  # 상단에서 30% 아래
             
             windll.user32.SetCursorPos(x, y)
             time.sleep(0.2)
@@ -821,7 +854,11 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
             print(f"  ⚠ 프롬프트 클릭 오류: {e}")
         
         # ★ 사용자 입력 차단 시작 (붙여넣기 중 방해 방지)
+        print("  → 사용자 입력 차단 시작...")
         input_blocked = block_user_input(True)
+        
+        if not input_blocked:
+            print("  ⚠ 입력 차단 실패 - 그래도 진행합니다")
         
         # ★★★ 입력 차단 시작 시점의 마우스 위치 저장 (붙여넣기 작업 시작 기준점)
         try:
@@ -868,36 +905,49 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
             return True
         
         finally:
-            # ★ 사용자 입력 차단 해제 (반드시 실행)
-            # 3회 연속 검사를 통한 확실한 복구
+            # ★ 사용자 입력 차단 해제 (반드시 실행) - 가장 최우선
+            print("  → ★★★ 입력 차단 해제 프로세스 시작 (최우선) ★★★")
+            
+            # 안전 타이머 취소
+            if safety_timer and safety_timer.is_alive():
+                try:
+                    safety_timer.cancel()
+                    print("  → [안전장치] 타이머 취소됨")
+                except Exception as e:
+                    print(f"  ⚠ 타이머 취소 오류: {e}")
+            
+            # 입력이 차단되었던 경우에만 해제 시도
             if input_blocked:
                 print("  → 입력 차단 해제 시작...")
                 
-                # 안전 타이머 취소
-                if safety_timer and safety_timer.is_alive():
-                    safety_timer.cancel()
-                    print("  → [안전장치] 타이머 취소됨")
-                
-                # 3회 연속 차단 해제 및 확인
-                for verify_attempt in range(3):
+                # 5회 연속 차단 해제 및 확인 (안전성 강화)
+                unblock_success = False
+                for verify_attempt in range(5):
                     try:
                         # 차단 해제 시도
                         result = windll.user32.BlockInput(False)
                         
-                        # 0.05초 대기 후 상태 확인을 위해 다시 해제 시도
-                        time.sleep(0.05)
+                        # 0.1초 대기 후 상태 확인을 위해 다시 해제 시도
+                        time.sleep(0.1)
                         verify_result = windll.user32.BlockInput(False)
                         
-                        if result and verify_result:
-                            print(f"  ✓ 차단 해제 확인 완료 (검증 {verify_attempt + 1}/3)")
+                        if result or verify_result:
+                            print(f"  ✓ 차단 해제 확인 완료 (검증 {verify_attempt + 1}/5)")
+                            unblock_success = True
                         else:
-                            print(f"  ⚠ 차단 해제 미확인 - 재시도 (검증 {verify_attempt + 1}/3)")
+                            print(f"  ⚠ 차단 해제 미확인 - 재시도 (검증 {verify_attempt + 1}/5)")
                     except Exception as e:
-                        print(f"  ⚠ 차단 해제 오류 (검증 {verify_attempt + 1}/3): {e}")
+                        print(f"  ⚠ 차단 해제 오류 (검증 {verify_attempt + 1}/5): {e}")
                 
                 # 전역 상태 업데이트
                 input_block_active = False
-                print("  ✓ 입력 차단 해제 완료 (3회 검증 완료)")
+                
+                if unblock_success:
+                    print("  ✓✓✓ 입력 차단 해제 완료 (5회 검증 완료) ✓✓✓")
+                else:
+                    print("  ⚠⚠⚠ 입력 차단 해제 실패 - 재부팅 필요할 수 있음 ⚠⚠⚠")
+            else:
+                print("  → 입력 차단이 활성화되지 않았으므로 해제 생략")
             
             # ★★★ 원래 상태로 복원
             print("  → 원래 상태로 복원 중...")
@@ -912,13 +962,18 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
                         win32gui.SetForegroundWindow(original_foreground_hwnd)
                     except:
                         # 실패 시 Alt 키 트릭 사용
-                        windll.user32.keybd_event(0x12, 0, 0, 0)  # Alt Down
-                        time.sleep(0.05)
+                        alt_pressed = False
                         try:
-                            win32gui.SetForegroundWindow(original_foreground_hwnd)
-                        except:
-                            pass
-                        windll.user32.keybd_event(0x12, 0, 2, 0)  # Alt Up
+                            windll.user32.keybd_event(0x12, 0, 0, 0)  # Alt Down
+                            alt_pressed = True
+                            time.sleep(0.05)
+                            try:
+                                win32gui.SetForegroundWindow(original_foreground_hwnd)
+                            except:
+                                pass
+                        finally:
+                            if alt_pressed:
+                                windll.user32.keybd_event(0x12, 0, 2, 0)  # Alt Up (반드시 해제)
                     
                     time.sleep(0.3)
                     print("  → 원래 윈도우 복원 완료")
@@ -968,17 +1023,52 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
         import traceback
         traceback.print_exc()
         
-        # ★ 예외 발생 시에도 입력 차단 해제 보장
-        print("  → [긴급] 예외 발생으로 인한 입력 차단 해제...")
-        for emergency_attempt in range(3):
+        # ★ 예외 발생 시에도 입력 차단 해제 보장 (최우선 처리)
+        print("\n  → [긴급] 예외 발생으로 인한 입력 차단 긴급 해제 시작...")
+        
+        # 안전 타이머 긴급 취소
+        if safety_timer and safety_timer.is_alive():
             try:
-                windll.user32.BlockInput(False)
-                time.sleep(0.05)
-                print(f"  ✓ 긴급 차단 해제 시도 {emergency_attempt + 1}/3")
+                safety_timer.cancel()
+                print("  ✓ [긴급] 안전 타이머 취소됨")
             except:
                 pass
         
+        # 10회 연속 해제 시도 (긴급 상황)
+        for emergency_attempt in range(10):
+            try:
+                result = windll.user32.BlockInput(False)
+                time.sleep(0.1)
+                verify = windll.user32.BlockInput(False)
+                
+                if result or verify:
+                    print(f"  ✓ [긴급] 차단 해제 성공 (시도 {emergency_attempt + 1}/10)")
+                else:
+                    print(f"  ⚠ [긴급] 차단 해제 실패 (시도 {emergency_attempt + 1}/10)")
+            except Exception as unblock_err:
+                print(f"  ⚠ [긴급] 차단 해제 예외 (시도 {emergency_attempt + 1}/10): {unblock_err}")
+        
+        # Alt 키 강제 해제 (혹시 눌린 상태일 수 있음)
+        try:
+            for _ in range(3):
+                windll.user32.keybd_event(0x12, 0, 2, 0)  # Alt Up
+                time.sleep(0.05)
+            print("  ✓ [긴급] Alt 키 강제 해제 완료")
+        except:
+            pass
+        
+        # Ctrl, Shift 등 모든 수정자 키 해제
+        try:
+            windll.user32.keybd_event(0x11, 0, 2, 0)  # Ctrl Up
+            windll.user32.keybd_event(0x10, 0, 2, 0)  # Shift Up
+            windll.user32.keybd_event(0x5B, 0, 2, 0)  # Win Up
+            time.sleep(0.1)
+            print("  ✓ [긴급] 모든 수정자 키 해제 완료")
+        except:
+            pass
+        
         input_block_active = False
+        print("  ✓ [긴급] 차단 해제 프로세스 완료\n")
         
         return False
 
