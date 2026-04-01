@@ -870,11 +870,21 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
         
         try:
             # ★★★ 입력 차단 후 클립보드에 복사 (사용자 복사 내용 덮어쓰기 방지)
-            import pyperclip
+            # 순수 텍스트만 복사 (파일 포맷 등 제거)
             print("  → 클립보드에 복사...")
-            pyperclip.copy(text)
-            time.sleep(0.3)  # 클립보드 복사 완료 대기
-            print("  → 클립보드 복사 완료!")
+            try:
+                win32clipboard.OpenClipboard()
+                win32clipboard.EmptyClipboard()  # 기존 모든 포맷 제거
+                win32clipboard.SetClipboardText(text, win32clipboard.CF_UNICODETEXT)  # 유니코드 텍스트만 설정
+                win32clipboard.CloseClipboard()
+                time.sleep(0.3)  # 클립보드 복사 완료 대기
+                print("  → 클립보드 복사 완료 (순수 텍스트)")
+            except Exception as clip_err:
+                print(f"  ⚠ win32clipboard 오류, pyperclip 사용: {clip_err}")
+                import pyperclip
+                pyperclip.copy(text)
+                time.sleep(0.3)
+                print("  → 클립보드 복사 완료 (pyperclip)")
             
             # Ctrl+N으로 새로운 프롬프트 창 열기
             print("  → Ctrl+N으로 새 프롬프트 창 열기...")
