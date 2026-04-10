@@ -6,7 +6,9 @@ Cursor 프롬프트 입력창 자동화 프로그램
 - 두 파일의 내용을 합쳐서 Cursor IDE의 프롬프트 입력창에 자동으로 입력
 - Windows 메시지를 사용하여 백그라운드에서 안전하게 입력 (사용자의 작업 방해 최소화)
 - 입력 후 자동으로 엔터 키를 눌러 전송
-- 여러 개의 Cursor 인스턴스가 실행 중일 때 사용자가 선택할 수 있도록 지원
+- 제목에 "prompt"가 포함된 Cursor 윈도우 개수를 자동으로 감지하여 선택
+- prompt 윈도우가 없는 경우에만 수동으로 윈도우 개수 입력
+- 디바운싱 기능: 30초 이내 중복 실행 방지 (파일 저장 시 중복 감지 방지)
 
 ## 사용자 입력 감지 및 안전장치
 - 사용자 입력 감지: 키보드/마우스 입력이 3초간 없을 때까지 대기 후 실행
@@ -18,7 +20,7 @@ Cursor 프롬프트 입력창 자동화 프로그램
 ## 사용자 경험 개선
 - Ctrl+N으로 새 프롬프트 창을 열어서 확실하게 붙여넣기
 - 사용자 입력 감지 시작 시 콘솔에 3-2-1 카운트다운 표시
-- 선택 개수와 일치할 때: 제목에 "prompt"가 포함된 Cursor 개수가 요청한 윈도우 개수와 같으면 자동 선택
+- 제목에 "prompt"가 포함된 Cursor 윈도우 개수를 자동 감지하여 사용자 입력 불필요
 - 마우스 흔들기 또는 더블 클릭으로 작업 취소 가능
 
 ## 안전성 강화 (2026-03-30)
@@ -205,6 +207,7 @@ def get_idle_duration():
 def force_window_to_foreground(hwnd):
     """
     윈도우를 강제로 전면으로 가져오기 (여러 방법 조합)
+    Alt 키를 사용하지 않는 안전한 방법
     
     Args:
         hwnd: 윈도우 핸들
@@ -212,7 +215,6 @@ def force_window_to_foreground(hwnd):
     Returns:
         bool: 성공 여부
     """
-    alt_key_pressed = False  # Alt 키 상태 추적
     thread_attached = False  # 스레드 연결 상태 추적
     current_thread = None
     foreground_thread = None
@@ -234,15 +236,7 @@ def force_window_to_foreground(hwnd):
         win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
         time.sleep(0.1)
         
-        # 5. Alt 키를 눌러서 입력 포커스 획득 (Windows 보안 정책 우회)
-        try:
-            windll.user32.keybd_event(0x12, 0, 0, 0)  # Alt Down
-            alt_key_pressed = True
-            time.sleep(0.05)
-        except Exception as e:
-            print(f"  ⚠ Alt 키 누름 오류: {e}")
-        
-        # 6. 현재 프로세스와 전면 윈도우의 스레드를 연결
+        # 5. 현재 프로세스와 전면 윈도우의 스레드를 연결
         if current_foreground != 0:
             try:
                 current_thread = win32api.GetCurrentThreadId()
@@ -304,16 +298,7 @@ def force_window_to_foreground(hwnd):
         return False
     
     finally:
-        # ★★★ 반드시 Alt 키 해제 및 스레드 분리 (예외 발생 시에도)
-        if alt_key_pressed:
-            try:
-                windll.user32.keybd_event(0x12, 0, 2, 0)  # Alt Up
-                time.sleep(0.05)
-                print("  → Alt 키 해제 완료")
-            except Exception as e:
-                print(f"  ⚠ Alt 키 해제 오류: {e}")
-        
-        # 스레드 분리
+        # ★★★ 스레드 분리 (예외 발생 시에도)
         if thread_attached and current_thread and foreground_thread:
             try:
                 windll.user32.AttachThreadInput(current_thread, foreground_thread, False)
@@ -834,39 +819,63 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
             print(f"  ⚠ 전체 타임아웃 ({timeout_seconds}초 초과)")
             return False
         
-        # ★ 프롬프트 창 영역 클릭 (포커스 확보)
+        # ★ 프롬프트 입력창 클릭 (포커스 확보)
         print("  → 프롬프트 입력창 클릭...")
         try:
             rect = win32gui.GetWindowRect(hwnd)
-            # 윈도우 우측 75% 위치, 상단에서 30% 아래 위치 클릭
             window_width = rect[2] - rect[0]
             window_height = rect[3] - rect[1]
-            x = rect[0] + int(window_width * 0.75)  # 우측으로 75% (50% → 75%)
-            y = rect[1] + int(window_height * 0.30)  # 상단에서 30% 아래
             
-            windll.user32.SetCursorPos(x, y)
-            time.sleep(0.2)
-            windll.user32.mouse_event(2, 0, 0, 0, 0)  # Left down
-            windll.user32.mouse_event(4, 0, 0, 0, 0)  # Left up
-            time.sleep(0.5)  # 클릭 후 포커스 안정화
-            print(f"  → 프롬프트 창 클릭 완료 (위치: {x}, {y})")
+            # 윈도우 우측 50%, 중간 높이 50% 위치 클릭
+            click_positions = [
+                (0.75, 0.50),  # 우측 50% (중앙에서 우측), 중간 높이 50%
+                (0.70, 0.50),  # 우측 조금 더 좌측
+                (0.80, 0.50),  # 우측 조금 더 우측
+                (0.75, 0.55),  # 우측, 조금 아래
+                (0.75, 0.45),  # 우측, 조금 위
+            ]
+            
+            for idx, (ratio_x, ratio_y) in enumerate(click_positions):
+                x = rect[0] + int(window_width * ratio_x)
+                y = rect[1] + int(window_height * ratio_y)
+                
+                print(f"  → 클릭 시도 {idx + 1}/5: ({x}, {y})")
+                windll.user32.SetCursorPos(x, y)
+                time.sleep(0.2)
+                
+                # 3번 클릭 (확실하게)
+                for click_count in range(3):
+                    windll.user32.mouse_event(2, 0, 0, 0, 0)  # Left down
+                    time.sleep(0.03)
+                    windll.user32.mouse_event(4, 0, 0, 0, 0)  # Left up
+                    time.sleep(0.03)
+                
+                time.sleep(0.3)
+                
+                # 첫 번째 클릭 후 충분한 대기
+                if idx == 0:
+                    print(f"  → 프롬프트 창 클릭 완료 (주 클릭 위치)")
+                    time.sleep(0.8)  # 클릭 후 포커스 안정화를 위한 충분한 대기 시간
+                    print(f"  → 포커스 안정화 완료")
+                    break
+            
         except Exception as e:
             print(f"  ⚠ 프롬프트 클릭 오류: {e}")
         
-        # ★ 사용자 입력 차단 시작 (붙여넣기 중 방해 방지)
-        print("  → 사용자 입력 차단 시작...")
-        input_blocked = block_user_input(True)
-        
-        if not input_blocked:
-            print("  ⚠ 입력 차단 실패 - 그래도 진행합니다")
-        
-        # ★★★ 입력 차단 시작 시점의 마우스 위치 저장 (붙여넣기 작업 시작 기준점)
+        # ★★★ 붙여넣기 시작 시점의 마우스 위치 저장 (입력 차단 전)
         try:
             cursor_pos = win32api.GetCursorPos()
             paste_start_mouse_pos = (cursor_pos[0], cursor_pos[1])
             print(f"  → 붙여넣기 시작 시점 마우스 위치: ({paste_start_mouse_pos[0]}, {paste_start_mouse_pos[1]})")
         except Exception as e:
             print(f"  ⚠ 시작 시점 마우스 위치 저장 오류: {e}")
+        
+        # ★ 사용자 입력 차단 시작 (클립보드 복사 직전)
+        print("  → 사용자 입력 차단 시작...")
+        input_blocked = block_user_input(True)
+        
+        if not input_blocked:
+            print("  ⚠ 입력 차단 실패 - 그래도 진행합니다")
         
         try:
             # ★★★ 입력 차단 후 클립보드에 복사 (사용자 복사 내용 덮어쓰기 방지)
@@ -892,6 +901,11 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
                 send_keys("^n")  # Ctrl+N (새 프롬프트)
                 time.sleep(Config.NEW_PROMPT_OPEN_DELAY)
                 print("  → 새 프롬프트 창 열림")
+                
+                # 새 프롬프트 창이 완전히 열린 후 추가 대기
+                print("  → 입력창 준비 대기 중...")
+                time.sleep(0.5)  # 입력창이 완전히 준비될 때까지 추가 대기
+                print("  → 입력창 준비 완료")
             except Exception as e:
                 print(f"  ⚠ 새 프롬프트 열기 오류: {e}")
             
@@ -904,6 +918,7 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
             except Exception as e:
                 print(f"  ⚠ 붙여넣기 오류: {e}")
             
+            # Enter 전송
             try:
                 send_keys("{ENTER}")  # Enter
                 time.sleep(0.5)
@@ -967,23 +982,25 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
                 try:
                     print("  → 원래 윈도우 활성화...")
                     
-                    # 간단한 방법으로 복원 시도
+                    # 스레드 연결 방식으로 복원
                     try:
-                        win32gui.SetForegroundWindow(original_foreground_hwnd)
-                    except:
-                        # 실패 시 Alt 키 트릭 사용
-                        alt_pressed = False
-                        try:
-                            windll.user32.keybd_event(0x12, 0, 0, 0)  # Alt Down
-                            alt_pressed = True
-                            time.sleep(0.05)
+                        current_tid = win32api.GetCurrentThreadId()
+                        target_tid = win32process.GetWindowThreadProcessId(original_foreground_hwnd)[0]
+                        
+                        if current_tid != target_tid:
+                            windll.user32.AttachThreadInput(current_tid, target_tid, True)
                             try:
                                 win32gui.SetForegroundWindow(original_foreground_hwnd)
-                            except:
-                                pass
-                        finally:
-                            if alt_pressed:
-                                windll.user32.keybd_event(0x12, 0, 2, 0)  # Alt Up (반드시 해제)
+                            finally:
+                                windll.user32.AttachThreadInput(current_tid, target_tid, False)
+                        else:
+                            win32gui.SetForegroundWindow(original_foreground_hwnd)
+                    except:
+                        # 최후의 수단: 그냥 시도
+                        try:
+                            win32gui.SetForegroundWindow(original_foreground_hwnd)
+                        except:
+                            pass
                     
                     time.sleep(0.3)
                     print("  → 원래 윈도우 복원 완료")
@@ -1060,18 +1077,19 @@ def send_text_to_cursor(text, cursor_window, countdown_process=None):
         
         # Alt 키 강제 해제 (혹시 눌린 상태일 수 있음)
         try:
-            for _ in range(3):
-                windll.user32.keybd_event(0x12, 0, 2, 0)  # Alt Up
-                time.sleep(0.05)
-            print("  ✓ [긴급] Alt 키 강제 해제 완료")
+            for _ in range(5):
+                windll.user32.keybd_event(0x12, 0, 0x0002, 0)  # Alt Up (KEYEVENTF_KEYUP = 0x0002)
+                time.sleep(0.02)
+            print("  ✓ [긴급] Alt 키 강제 해제 완료 (5회)")
         except:
             pass
         
         # Ctrl, Shift 등 모든 수정자 키 해제
         try:
-            windll.user32.keybd_event(0x11, 0, 2, 0)  # Ctrl Up
-            windll.user32.keybd_event(0x10, 0, 2, 0)  # Shift Up
-            windll.user32.keybd_event(0x5B, 0, 2, 0)  # Win Up
+            windll.user32.keybd_event(0x11, 0, 0x0002, 0)  # Ctrl Up
+            windll.user32.keybd_event(0x10, 0, 0x0002, 0)  # Shift Up
+            windll.user32.keybd_event(0x5B, 0, 0x0002, 0)  # Win Up (Left)
+            windll.user32.keybd_event(0x5C, 0, 0x0002, 0)  # Win Up (Right)
             time.sleep(0.1)
             print("  ✓ [긴급] 모든 수정자 키 해제 완료")
         except:
@@ -1111,7 +1129,9 @@ def monitor_files_and_send(status_file, roll_file, cursor_windows_list, check_in
     check_count = 0
     paste_count = 0  # 붙여넣기 성공 횟수
     last_paste_time = None  # 마지막 붙여넣기 시간
+    last_paste_timestamp = 0  # 마지막 붙여넣기 타임스탬프 (초)
     current_window_index = 0  # 현재 윈도우 인덱스 (순환용)
+    debounce_seconds = 30  # 디바운싱 시간 (초) - 30초 이내 중복 방지
     
     try:
         while True:
@@ -1125,13 +1145,28 @@ def monitor_files_and_send(status_file, roll_file, cursor_windows_list, check_in
             # 초기화 시 해시 저장
             if last_hash is None:
                 last_hash = current_hash
-                print(f"[초기화] 파일 모니터링 준비 완료\n")
+                print(f"[초기화] 파일 모니터링 준비 완료 (디바운싱: {debounce_seconds}초)\n")
             
             # 파일이 변경되었는지 확인
             if current_hash != last_hash:
                 print(f"\n" + "="*80)
                 print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ★ 파일 변경 감지! ★")
                 print(f"="*80)
+                
+                # 디바운싱 체크: 마지막 붙여넣기로부터 경과 시간 확인
+                current_time = time.time()
+                elapsed_since_last_paste = current_time - last_paste_timestamp
+                
+                if last_paste_timestamp > 0 and elapsed_since_last_paste < debounce_seconds:
+                    remaining_time = debounce_seconds - elapsed_since_last_paste
+                    print(f"  ⚠ [디바운싱] 마지막 붙여넣기로부터 {elapsed_since_last_paste:.1f}초 경과")
+                    print(f"  ⚠ {debounce_seconds}초 이내 중복 실행 방지 - {remaining_time:.1f}초 후 실행 가능")
+                    print(f"  → 이번 파일 변경은 무시합니다.\n")
+                    
+                    # 해시는 업데이트 (같은 변경을 다시 감지하지 않도록)
+                    last_hash = current_hash
+                    time.sleep(check_interval)
+                    continue
                 
                 # 두 파일의 내용을 읽어서 합치기
                 combined_content = read_and_combine_files(status_file, roll_file)
@@ -1152,10 +1187,12 @@ def monitor_files_and_send(status_file, roll_file, cursor_windows_list, check_in
                         if success:
                             paste_count += 1
                             last_paste_time = time.strftime('%Y-%m-%d %H:%M:%S')
+                            last_paste_timestamp = time.time()  # 타임스탬프 업데이트
                             
                             print(f"\n" + "="*80)
                             print(f"✓ 작업 완료! 파일 내용이 Cursor에 전송되었습니다.")
                             print(f"  {window_info} [{paste_count}회째 붙여넣기 성공] {last_paste_time}")
+                            print(f"  → 다음 {debounce_seconds}초 동안은 중복 실행되지 않습니다.")
                             print(f"="*80 + "\n")
                             
                             # 다음 윈도우로 순환
@@ -1201,6 +1238,22 @@ def monitor_files_and_send(status_file, roll_file, cursor_windows_list, check_in
             except:
                 pass
         
+        # ★ 프로그램 종료 시 모든 수정자 키 해제
+        print("  → 모든 수정자 키 해제...")
+        try:
+            # Alt 키 해제 (5회)
+            for _ in range(5):
+                windll.user32.keybd_event(0x12, 0, 0x0002, 0)  # Alt Up
+                time.sleep(0.02)
+            # Ctrl, Shift, Win 키 해제
+            windll.user32.keybd_event(0x11, 0, 0x0002, 0)  # Ctrl Up
+            windll.user32.keybd_event(0x10, 0, 0x0002, 0)  # Shift Up
+            windll.user32.keybd_event(0x5B, 0, 0x0002, 0)  # Win Left Up
+            windll.user32.keybd_event(0x5C, 0, 0x0002, 0)  # Win Right Up
+            print("  ✓ 모든 수정자 키 해제 완료")
+        except:
+            pass
+        
         input_block_active = False
         if safety_timer and safety_timer.is_alive():
             safety_timer.cancel()
@@ -1220,6 +1273,21 @@ def monitor_files_and_send(status_file, roll_file, cursor_windows_list, check_in
                 time.sleep(0.05)
             except:
                 pass
+        
+        # ★ 모든 수정자 키 긴급 해제
+        try:
+            # Alt 키 해제 (5회)
+            for _ in range(5):
+                windll.user32.keybd_event(0x12, 0, 0x0002, 0)  # Alt Up
+                time.sleep(0.02)
+            # Ctrl, Shift, Win 키 해제
+            windll.user32.keybd_event(0x11, 0, 0x0002, 0)  # Ctrl Up
+            windll.user32.keybd_event(0x10, 0, 0x0002, 0)  # Shift Up
+            windll.user32.keybd_event(0x5B, 0, 0x0002, 0)  # Win Left Up
+            windll.user32.keybd_event(0x5C, 0, 0x0002, 0)  # Win Right Up
+            print("  ✓ [긴급] 모든 수정자 키 해제 완료")
+        except:
+            pass
         
         input_block_active = False
         if safety_timer and safety_timer.is_alive():
@@ -1251,63 +1319,58 @@ if __name__ == "__main__":
     if not os.path.exists(status_file) and not os.path.exists(roll_file):
         print("\n파일이 생성될 때까지 대기합니다...\n")
     
-    # 선택할 Cursor 윈도우 개수 입력
-    print("\n" + "=" * 50)
-    while True:
-        try:
-            num_windows = input("선택할 Cursor 윈도우 개수 (1-10, 0=종료): ").strip()
-            if not num_windows:
-                continue
-            
-            num_windows = int(num_windows)
-            
-            if num_windows == 0:
-                print("프로그램을 종료합니다.")
-                sys.exit(0)
-            
-            if 1 <= num_windows <= 10:
-                break
-            else:
-                print("⚠ 1부터 10 사이의 숫자를 입력하세요.")
-        except ValueError:
-            print("⚠ 올바른 숫자를 입력하세요.")
-        except KeyboardInterrupt:
-            print("\n\n프로그램을 종료합니다.")
-            sys.exit(0)
-    
-    print(f"\n선택할 윈도우 개수: {num_windows}개")
-    print("=" * 50)
-    
-    print("\n1단계: Cursor 윈도우 선택")
+    # 모든 Cursor 윈도우 먼저 찾기
+    print("\n1단계: Cursor 윈도우 검색")
     print("-" * 50)
-    
-    # 모든 Cursor 윈도우 찾기
     cursor_windows = find_all_cursor_windows()
     
     if not cursor_windows:
         print("실행 중인 Cursor 윈도우를 찾을 수 없습니다.")
         sys.exit(1)
     
-    if len(cursor_windows) < num_windows:
-        print(f"⚠ 실행 중인 Cursor 윈도우가 {len(cursor_windows)}개뿐입니다.")
-        print(f"  요청한 {num_windows}개를 선택할 수 없습니다.")
-        sys.exit(1)
-    
-    # 제목에 "prompt" 포함 윈도우 개수가 요청 개수와 같으면 자동 선택
+    # 제목에 "prompt" 포함 윈도우 자동 감지
     prompt_windows = [
         w for w in cursor_windows
         if "prompt" in (w.get("title") or "").lower()
     ]
-    selected_windows = []
-    if len(prompt_windows) == num_windows:
-        print(
-            f'\n제목에 "prompt"가 포함된 Cursor 윈도우가 {num_windows}개뿐이어서 '
-            "자동 선택합니다."
-        )
-        for w in prompt_windows:
-            selected_windows.append(w["window"])
-            print(f"  → {w['title']}")
-    else:
+    
+    # prompt 윈도우 개수를 자동으로 설정
+    num_windows = len(prompt_windows)
+    
+    if num_windows == 0:
+        print("\n⚠ 제목에 'prompt'가 포함된 Cursor 윈도우를 찾을 수 없습니다.")
+        print("수동으로 선택할 윈도우 개수를 입력하세요.")
+        print("\n" + "=" * 50)
+        while True:
+            try:
+                user_input = input("선택할 Cursor 윈도우 개수 (1-10, 0=종료): ").strip()
+                if not user_input:
+                    continue
+                
+                num_windows = int(user_input)
+                
+                if num_windows == 0:
+                    print("프로그램을 종료합니다.")
+                    sys.exit(0)
+                
+                if 1 <= num_windows <= 10:
+                    if num_windows > len(cursor_windows):
+                        print(f"⚠ 실행 중인 Cursor 윈도우가 {len(cursor_windows)}개뿐입니다.")
+                        continue
+                    break
+                else:
+                    print("⚠ 1부터 10 사이의 숫자를 입력하세요.")
+            except ValueError:
+                print("⚠ 올바른 숫자를 입력하세요.")
+            except KeyboardInterrupt:
+                print("\n\n프로그램을 종료합니다.")
+                sys.exit(0)
+        
+        print(f"\n선택할 윈도우 개수: {num_windows}개")
+        print("=" * 50)
+        
+        # 수동 선택 모드
+        selected_windows = []
         for i in range(num_windows):
             print(f"\n[{i + 1}/{num_windows}] 번째 Cursor 윈도우 선택:")
             cursor_window = select_cursor_window(cursor_windows)
@@ -1318,6 +1381,16 @@ if __name__ == "__main__":
             
             selected_windows.append(cursor_window)
             print(f"  → 선택됨: {cursor_window.window_text()}")
+    else:
+        # prompt 윈도우 자동 선택
+        print(f'\n✓ 제목에 "prompt"가 포함된 Cursor 윈도우 {num_windows}개 자동 감지!')
+        print(f"자동으로 {num_windows}개의 윈도우를 선택합니다.")
+        print("=" * 50)
+        
+        selected_windows = []
+        for w in prompt_windows:
+            selected_windows.append(w["window"])
+            print(f"  → {w['title']}")
     
     print(f"\n✓ 총 {len(selected_windows)}개의 Cursor 윈도우 선택 완료")
     print("\n선택된 윈도우 목록:")
